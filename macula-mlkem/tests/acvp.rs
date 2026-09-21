@@ -257,7 +257,6 @@ fn the_harness_accepts_a_match() {
 // ---------------------------------------------------------------------
 
 #[test]
-#[ignore = "ML-KEM is not implemented yet; remove when key_gen lands"]
 fn key_gen_matches_acvp() {
     let exp = expected(KEYGEN);
     let p = vectors(KEYGEN, "prompt.json");

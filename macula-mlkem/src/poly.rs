@@ -17,9 +17,8 @@ pub type Poly = [i16; N];
 ///
 /// ⚠ The intermediate is i64 ON PURPOSE. `V * a` with `a` near `q^2`
 /// (which is what a coefficient product is) overflows i32 by two orders
-/// of magnitude. The first version of this function did that and every
-/// test panicked in debug; in release it would have wrapped silently and
-/// produced a wrong implementation that looked plausible.
+/// of magnitude, and in a release build that wraps silently into a wrong
+/// result.
 #[inline(always)]
 pub fn reduce(a: i32) -> i16 {
     const V: i64 = (1 << 26) / Q as i64;

@@ -53,6 +53,8 @@
 #![forbid(unsafe_code)]
 
 pub mod encode;
+mod hash;
+mod kpke;
 pub mod poly;
 pub mod sample;
 
@@ -115,8 +117,14 @@ pub enum Error {
 /// draws them from the OS CSPRNG sits on top; see the crate docs.
 ///
 /// Returns `(ek, dk)`.
-pub fn key_gen(_p: ParameterSet, _d: &[u8; 32], _z: &[u8; 32]) -> (Vec<u8>, Vec<u8>) {
-    todo!("ML-KEM key generation")
+pub fn key_gen(p: ParameterSet, d: &[u8; 32], z: &[u8; 32]) -> (Vec<u8>, Vec<u8>) {
+    let (ek, dk_pke) = kpke::key_gen(p, d);
+    // dk = dk_pke || ek || H(ek) || z, FIPS 203 Algorithm 16.
+    let mut dk = dk_pke;
+    dk.extend_from_slice(&ek);
+    dk.extend_from_slice(&hash::h(&ek));
+    dk.extend_from_slice(z);
+    (ek, dk)
 }
 
 /// FIPS 203 Algorithm 17, derandomised: `m` is supplied rather than drawn.

@@ -40,22 +40,44 @@ pub fn byte_decode(d: usize, bytes: &[u8]) -> Poly {
             v |= (b as u32) << i;
             bit += 1;
         }
-        *coeff = if d == 12 {
-            (v % Q as u32) as i16
-        } else {
-            v as i16
-        };
+        *coeff = if d == 12 { reduce_12_bit(v) } else { v as i16 };
     }
     f
 }
 
-/// FIPS 203 equation 4.7, Compress_d.
+/// `floor(n / q)` by multiplication and shift, for `n < 2^23`.
 ///
-/// `round(2^d / q * x) mod 2^d`, computed with integer arithmetic:
-/// `(x * 2^d + q/2) / q`. No floating point, and no branch on `x`.
+/// No division instruction: `compress` runs on secret-dependent values in
+/// both encryption and decryption, and a hardware divide can take a time
+/// that depends on its operands. Whether the optimiser would turn `/ q`
+/// into a multiply anyway is not something to rely on, because debug
+/// builds emit a real `div`.
+///
+/// With a ceiling magic any shift from 30 up is exact on this domain; 48
+/// leaves margin. `compress_equals_the_division_formula_exhaustively`
+/// checks every input.
+#[inline(always)]
+fn div_q(n: u64) -> u64 {
+    const SHIFT: u32 = 48;
+    // ceil(2^48 / q), evaluated at compile time.
+    const MAGIC: u64 = (1u64 << SHIFT).div_ceil(Q as u64);
+    (n * MAGIC) >> SHIFT
+}
+
+/// A 12-bit value mod q, without `%`: one conditional subtraction, done
+/// with a sign mask. `dk` decodes through here, so the value is secret.
+#[inline(always)]
+fn reduce_12_bit(v: u32) -> i16 {
+    let r = v as i32 - Q;
+    (r + ((r >> 31) & Q)) as i16
+}
+
+/// FIPS 203 equation 4.7, Compress_d: `round(2^d / q * x) mod 2^d`.
+///
+/// Integer arithmetic, no branch on `x`, no division.
 pub fn compress(d: usize, x: i16) -> i16 {
-    let num = (x as u64) << d;
-    let quotient = (num + (Q as u64) / 2) / Q as u64;
+    const HALF_Q: u64 = Q as u64 / 2;
+    let quotient = div_q(((x as u64) << d) + HALF_Q);
     (quotient & ((1u64 << d) - 1)) as i16
 }
 

@@ -63,3 +63,43 @@ fn compress_lands_in_range() {
         }
     }
 }
+
+/// `compress` must equal the FIPS 203 rounding formula for EVERY input at
+/// every width. The reference below divides by q, which the implementation
+/// must not do on secret data; this pins that the division-free form gives
+/// identical answers everywhere, not just on a sample.
+#[test]
+fn compress_equals_the_division_formula_exhaustively() {
+    for d in [1usize, 4, 5, 10, 11] {
+        for x in 0..Q as i16 {
+            let reference = ((((x as u64) << d) + (Q as u64) / 2) / Q as u64) & ((1u64 << d) - 1);
+            assert_eq!(compress(d, x) as u64, reference, "d = {d}, x = {x}");
+        }
+    }
+}
+
+/// ByteDecode_12 reduces every 12-bit value mod q, including the 767
+/// values in [q, 4096) that a malformed key can carry.
+#[test]
+fn byte_decode_12_reduces_every_12_bit_value() {
+    for chunk in 0..16u32 {
+        let mut f = [0i16; 256];
+        let mut raw = [0u32; 256];
+        for (i, r) in raw.iter_mut().enumerate() {
+            *r = chunk * 256 + i as u32;
+        }
+        // Pack the raw 12-bit values, bypassing byte_encode's range.
+        let mut bytes = vec![0u8; 384];
+        let mut bit = 0usize;
+        for &v in raw.iter() {
+            for b in 0..12 {
+                bytes[bit / 8] |= (((v >> b) & 1) as u8) << (bit % 8);
+                bit += 1;
+            }
+        }
+        f.copy_from_slice(&byte_decode(12, &bytes));
+        for (i, &c) in f.iter().enumerate() {
+            assert_eq!(c as u32, raw[i] % Q as u32, "raw value {}", raw[i]);
+        }
+    }
+}
