@@ -1,5 +1,12 @@
 //! The facade: the one place macula's post-quantum posture is decided.
 //!
+//! # API
+//!
+//! [`client_builder`] and [`server_builder`]: rustls configuration
+//! builders with the crypto provider and TLS 1.3 already fixed. The caller
+//! chooses certificates, the verifier, client authentication and ALPN. It
+//! cannot choose the key exchange groups.
+//!
 //! # Why a facade, and why the posture lives here
 //!
 //! The `kx_groups` list IS the post-quantum posture: which groups are
@@ -10,33 +17,66 @@
 //! `macula_quic` and `macula-rust` each select a crypto provider
 //! themselves today. Two copies of one posture is a contract in two places:
 //! one of them eventually gains a classical fallback and nothing notices.
-//! Both are to call [`provider`] instead; neither does yet.
+//! Both are to build their TLS configurations from here instead; neither
+//! does yet.
 //!
-//! # ⚠ How far "structural" actually goes, stated precisely
+//! # ⚠ How far "locked" goes, stated precisely
 //!
-//! The intent is that a caller CANNOT assemble a provider carrying a
-//! classical-only group. What that can and cannot mean here:
+//! - **What is locked:** no function here returns a `CryptoProvider`. The
+//!   provider goes straight into a rustls builder, which keeps it in a
+//!   private field and offers only a read-only view (`crypto_provider()`),
+//!   and so does every configuration built from it. Nothing a caller
+//!   receives lets it add or remove a group, and the groups themselves are
+//!   not re-exported.
+//! - **What is not, and cannot be:** rustls is a public crate. A caller
+//!   that depends on it directly can build a configuration from scratch
+//!   with any provider, or clone ours out of the read-only view and build
+//!   a new one. Both bypass this crate entirely: a deliberate act, visible
+//!   in review, not an edit to something this crate handed out. Nothing in
+//!   Rust can prevent that, and claiming otherwise would be the same
+//!   defect as a guard that cannot fire.
 //!
-//! - **What is structural:** this crate exposes [`provider`] and nothing
-//!   else. It does not re-export the key exchange groups, and the list is
-//!   a local inside that one function, with no constant, builder or
-//!   second constructor beside it. A consumer that depends only on
-//!   `macula-pq` has no parts to assemble a different list from.
-//! - **What is NOT structural, and must not be described as though it
-//!   were:** `rustls::crypto::CryptoProvider` is rustls's own type with
-//!   public fields, and `macula-pq-kx` is a public crate. A caller can edit
-//!   the provider it is handed, or depend on rustls directly and build
-//!   whatever it likes. Nothing in Rust can prevent that, and claiming
-//!   otherwise would be the same defect as a guard that cannot fire.
-//!
-//! So the guarantee is: **ours is the only provider these crates hand out,
-//! and its contents are asserted by tests beside it**, including the
-//! negative control that makes the posture checkable rather than merely
-//! documented.
+//! So the guarantee is: **every configuration built from this crate offers
+//! exactly our list**, and the tests beside the list assert that of the
+//! builders themselves, including the negative control that makes the
+//! posture checkable rather than merely documented.
 
 #![forbid(unsafe_code)]
 
-/// The crypto provider every macula component builds its TLS from.
+use std::sync::Arc;
+
+use rustls::{ClientConfig, ConfigBuilder, ServerConfig, WantsVerifier};
+
+/// A rustls client configuration builder with macula's crypto provider
+/// and TLS 1.3 already fixed. Continue with a verifier and client
+/// authentication; the key exchange groups are not the caller's to set.
+pub fn client_builder() -> ConfigBuilder<ClientConfig, WantsVerifier> {
+    ClientConfig::builder_with_provider(Arc::new(provider()))
+        .with_protocol_versions(TLS_1_3_ONLY)
+        .expect(PROVIDER_SPEAKS_TLS_1_3)
+}
+
+/// A rustls server configuration builder with macula's crypto provider
+/// and TLS 1.3 already fixed. Continue with client authentication and a
+/// certificate; the key exchange groups are not the caller's to set.
+pub fn server_builder() -> ConfigBuilder<ServerConfig, WantsVerifier> {
+    ServerConfig::builder_with_provider(Arc::new(provider()))
+        .with_protocol_versions(TLS_1_3_ONLY)
+        .expect(PROVIDER_SPEAKS_TLS_1_3)
+}
+
+/// TLS 1.3 only. QUIC requires it, and both hybrids refuse TLS 1.2 on
+/// their own (`macula-pq-kx`'s `usable_for_tls13_only`), which is what
+/// actually enforces it and is tested there. Stated here as well so that a
+/// consumer building rustls with its `tls12` feature, as `macula_quic`
+/// does, does not put TLS 1.2 in our ClientHello.
+const TLS_1_3_ONLY: &[&rustls::SupportedProtocolVersion] = &[&rustls::version::TLS13];
+
+/// The only way this can fail is a provider with no TLS 1.3 cipher suite,
+/// and ours is `aws-lc-rs`'s default. Every test below builds through it.
+const PROVIDER_SPEAKS_TLS_1_3: &str = "aws-lc-rs's default provider has TLS 1.3 cipher suites";
+
+/// The crypto provider inside both builders. Private: see the crate docs.
 ///
 /// # The key exchange groups
 ///
@@ -79,7 +119,7 @@
 /// And this is key exchange, not signatures: certificates are verified
 /// with ECDSA, Ed25519 or RSA. Say "post-quantum key exchange", never
 /// "post-quantum TLS".
-pub fn provider() -> rustls::crypto::CryptoProvider {
+fn provider() -> rustls::crypto::CryptoProvider {
     rustls::crypto::CryptoProvider {
         kx_groups: vec![
             macula_pq_kx::SECP384R1MLKEM1024,
@@ -91,21 +131,23 @@ pub fn provider() -> rustls::crypto::CryptoProvider {
 
 #[cfg(test)]
 mod tests {
-    //! The negative control lives HERE, next to `provider()`, so the list
-    //! and the proof that it is in force cannot drift apart.
+    //! The negative control lives HERE, next to the list, so the list and
+    //! the proof that it is in force cannot drift apart. Our side of every
+    //! handshake is built through `client_builder` and `server_builder`,
+    //! the only way a consumer can get a configuration from this crate.
 
     use std::sync::Arc;
 
     use rcgen::{BasicConstraints, CertificateParams, IsCa, Issuer, KeyPair};
     use rustls::crypto::aws_lc_rs::kx_group as aws;
-    use rustls::crypto::CryptoProvider;
+    use rustls::crypto::{CryptoProvider, SupportedKxGroup};
     use rustls::pki_types::{CertificateDer, PrivateKeyDer, PrivatePkcs8KeyDer, ServerName};
     use rustls::{
         ClientConfig, ClientConnection, Connection, NamedGroup, RootCertStore, ServerConfig,
         ServerConnection,
     };
 
-    use super::provider;
+    use super::{client_builder, server_builder};
 
     /// `SecP384r1MLKEM1024`. rustls 0.23.43 has no variant for it.
     const SECP384R1MLKEM1024: NamedGroup = NamedGroup::Unknown(0x11ED);
@@ -126,56 +168,69 @@ mod tests {
             )
     }
 
-    /// Exactly our two hybrids, in this order, and they are OUR objects.
-    /// `aws-lc-rs` ships a `SECP256R1MLKEM768` with the same name, the same
-    /// lengths and the same behaviour on the wire, so only identity tells
-    /// ours from theirs.
+    /// What each builder a consumer can obtain actually carries.
+    fn locked_lists() -> [(&'static str, Vec<&'static dyn SupportedKxGroup>); 2] {
+        [
+            (
+                "client_builder",
+                client_builder().crypto_provider().kx_groups.clone(),
+            ),
+            (
+                "server_builder",
+                server_builder().crypto_provider().kx_groups.clone(),
+            ),
+        ]
+    }
+
+    /// Exactly our two hybrids, in this order, and they are OUR objects,
+    /// in both builders. `aws-lc-rs` ships a `SECP256R1MLKEM768` with the
+    /// same name, the same lengths and the same behaviour on the wire, so
+    /// only identity tells ours from theirs.
     #[test]
-    fn offers_our_two_hybrids_in_order_and_nothing_else() {
-        let groups = provider().kx_groups;
-        assert_eq!(
-            groups.len(),
-            2,
-            "{:?}",
-            groups.iter().map(|g| g.name()).collect::<Vec<_>>()
-        );
-        assert!(
-            std::ptr::addr_eq(groups[0], macula_pq_kx::SECP384R1MLKEM1024),
-            "first group is not macula-pq-kx's SecP384r1MLKEM1024"
-        );
-        assert!(
-            std::ptr::addr_eq(groups[1], macula_pq_kx::SECP256R1MLKEM768),
-            "second group is not macula-pq-kx's SecP256r1MLKEM768"
-        );
-        assert!(
-            !std::ptr::addr_eq(groups[1], aws::SECP256R1MLKEM768),
-            "second group is aws-lc-rs's, which runs aws-lc-rs's ML-KEM"
-        );
+    fn both_builders_carry_our_two_hybrids_in_order_and_nothing_else() {
+        for (builder, groups) in locked_lists() {
+            let names: Vec<NamedGroup> = groups.iter().map(|g| g.name()).collect();
+            assert_eq!(groups.len(), 2, "{builder}: {names:?}");
+            assert!(
+                std::ptr::addr_eq(groups[0], macula_pq_kx::SECP384R1MLKEM1024),
+                "{builder}: first group is not macula-pq-kx's SecP384r1MLKEM1024"
+            );
+            assert!(
+                std::ptr::addr_eq(groups[1], macula_pq_kx::SECP256R1MLKEM768),
+                "{builder}: second group is not macula-pq-kx's SecP256r1MLKEM768"
+            );
+            assert!(
+                !std::ptr::addr_eq(groups[1], aws::SECP256R1MLKEM768),
+                "{builder}: second group is aws-lc-rs's, which runs aws-lc-rs's ML-KEM"
+            );
+        }
     }
 
     /// The property itself, independent of the exact list, so a later
     /// change to the list still has to keep it.
     #[test]
     fn nothing_classical_is_offered() {
-        for group in provider().kx_groups {
-            assert!(
-                is_post_quantum(group.name()),
-                "{:?} is offered and is classical",
-                group.name()
-            );
+        for (builder, groups) in locked_lists() {
+            for group in groups {
+                assert!(
+                    is_post_quantum(group.name()),
+                    "{builder}: {:?} is offered and is classical",
+                    group.name()
+                );
+            }
         }
     }
 
     /// Two macula peers agree on the group the list leads with.
     #[test]
-    fn two_peers_on_this_provider_negotiate_secp384r1mlkem1024() {
+    fn two_peers_on_these_builders_negotiate_secp384r1mlkem1024() {
         let id = Identity::new();
-        let agreed = handshake(client(provider(), &id), server(provider(), &id));
+        let agreed = handshake(our_client(&id), our_server(&id));
         assert_eq!(agreed, Ok(SECP384R1MLKEM1024));
     }
 
     /// `macula_quic`'s list as it stands at macula `c91e0214`, before it
-    /// moves to this provider: all four on `aws-lc-rs`. A peer on it has no
+    /// moves to this crate: all four on `aws-lc-rs`. A peer on it has no
     /// `SecP384r1MLKEM1024`, so the two agree on `SecP256r1MLKEM768`, ours
     /// against `aws-lc-rs`'s in a full TLS handshake, in both roles. This
     /// is also the positive twin of the negative control below: the same
@@ -195,14 +250,8 @@ mod tests {
     #[test]
     fn a_peer_on_macula_quics_current_list_negotiates_secp256r1mlkem768() {
         let id = Identity::new();
-        let as_client = handshake(
-            client(provider(), &id),
-            server(macula_quic_list_today(), &id),
-        );
-        let as_server = handshake(
-            client(macula_quic_list_today(), &id),
-            server(provider(), &id),
-        );
+        let as_client = handshake(our_client(&id), peer_server(macula_quic_list_today(), &id));
+        let as_server = handshake(peer_client(macula_quic_list_today(), &id), our_server(&id));
         assert_eq!(as_client, Ok(NamedGroup::secp256r1MLKEM768), "we dial them");
         assert_eq!(as_server, Ok(NamedGroup::secp256r1MLKEM768), "they dial us");
     }
@@ -220,8 +269,8 @@ mod tests {
             ..rustls::crypto::aws_lc_rs::default_provider()
         };
         let id = Identity::new();
-        let as_client = handshake(client(provider(), &id), server(classical(), &id));
-        let as_server = handshake(client(classical(), &id), server(provider(), &id));
+        let as_client = handshake(our_client(&id), peer_server(classical(), &id));
+        let as_server = handshake(peer_client(classical(), &id), our_server(&id));
         assert!(
             as_client.is_err(),
             "a classical-only server agreed with us: {as_client:?}"
@@ -268,7 +317,22 @@ mod tests {
         }
     }
 
-    fn server(provider: CryptoProvider, id: &Identity) -> ServerConfig {
+    fn our_server(id: &Identity) -> ServerConfig {
+        server_builder()
+            .with_no_client_auth()
+            .with_single_cert(id.chain.clone(), id.key.clone_key())
+            .unwrap()
+    }
+
+    fn our_client(id: &Identity) -> ClientConfig {
+        client_builder()
+            .with_root_certificates(id.roots.clone())
+            .with_no_client_auth()
+    }
+
+    /// A peer on some other provider: the lists we must interoperate with
+    /// or refuse.
+    fn peer_server(provider: CryptoProvider, id: &Identity) -> ServerConfig {
         ServerConfig::builder_with_provider(Arc::new(provider))
             .with_safe_default_protocol_versions()
             .unwrap()
@@ -277,7 +341,7 @@ mod tests {
             .unwrap()
     }
 
-    fn client(provider: CryptoProvider, id: &Identity) -> ClientConfig {
+    fn peer_client(provider: CryptoProvider, id: &Identity) -> ClientConfig {
         ClientConfig::builder_with_provider(Arc::new(provider))
             .with_safe_default_protocol_versions()
             .unwrap()

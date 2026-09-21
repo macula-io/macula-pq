@@ -1,4 +1,4 @@
-//! Interop between `provider()` and OTP's own `ssl`.
+//! Interop between `macula-pq`'s TLS configurations and OTP's own `ssl`.
 //!
 //! Run with `scripts/otp-interop.sh`. Not part of the gate: it needs an
 //! OTP installation with ML-KEM (28.4 or later), which CI does not have.
@@ -22,7 +22,7 @@
 //! both roles, so the agreed keys also work for traffic.
 //!
 //! The negative control: OTP offering only classical groups must fail to
-//! agree with `provider()` in both roles. The passing cases are its
+//! agree with `macula-pq` in both roles. The passing cases are its
 //! positive twin: the same harness, a group in common, a handshake that
 //! completes.
 //!
@@ -58,7 +58,7 @@ const CLASSICAL_ONLY: &str = "x25519,secp256r1,secp384r1";
 fn main() {
     let otp_bin = PathBuf::from(std::env::var("OTP_BIN").expect("OTP_BIN: OTP's bin directory"));
     let (release, crypto_lib) = otp_facts(&otp_bin);
-    println!("OTP {release}, crypto library {crypto_lib}, against macula-pq provider()\n");
+    println!("OTP {release}, crypto library {crypto_lib}, against macula-pq\n");
 
     let dir = std::env::temp_dir().join(format!("macula-pq-otp-interop-{}", std::process::id()));
     std::fs::create_dir_all(&dir).unwrap();
@@ -121,7 +121,7 @@ fn main() {
     std::fs::remove_dir_all(&dir).unwrap();
     println!();
     if control_failed {
-        println!("NEGATIVE CONTROL FAILED: a classical-only OTP peer agreed with provider().");
+        println!("NEGATIVE CONTROL FAILED: a classical-only OTP peer agreed with macula-pq.");
         std::process::exit(2);
     }
     if interop_failed {
@@ -129,7 +129,7 @@ fn main() {
         std::process::exit(1);
     }
     println!(
-        "provider() and OTP's ssl agree on both hybrids in both roles; classical-only refused."
+        "macula-pq and OTP's ssl agree on both hybrids in both roles; classical-only refused."
     );
 }
 
@@ -203,7 +203,7 @@ impl Peer {
     }
 }
 
-/// OTP dials, `provider()` serves. The group is what rustls reports; the
+/// OTP dials, `macula-pq` serves. The group is what rustls reports; the
 /// result is `Ok` only if OTP also completed the ping/pong.
 fn we_serve(peer: &Peer, id: &Identity, otp_groups: &str) -> Result<NamedGroup, String> {
     let listener = TcpListener::bind("127.0.0.1:0").map_err(|e| e.to_string())?;
@@ -226,7 +226,7 @@ fn we_serve(peer: &Peer, id: &Identity, otp_groups: &str) -> Result<NamedGroup, 
     both(ours, finish(&mut otp))
 }
 
-/// `provider()` dials, OTP serves.
+/// `macula-pq` dials, OTP serves.
 fn we_dial(peer: &Peer, id: &Identity, otp_groups: &str) -> Result<NamedGroup, String> {
     let mut otp = peer.spawn(&["serve", otp_groups]);
     let ours = (|| {
@@ -374,9 +374,7 @@ impl Identity {
     }
 
     fn server(&self) -> ServerConfig {
-        ServerConfig::builder_with_provider(Arc::new(macula_pq::provider()))
-            .with_safe_default_protocol_versions()
-            .unwrap()
+        macula_pq::server_builder()
             .with_no_client_auth()
             .with_single_cert(
                 vec![self.server_cert.clone()],
@@ -388,9 +386,7 @@ impl Identity {
     fn client(&self) -> ClientConfig {
         let mut roots = RootCertStore::empty();
         roots.add(self.ca.clone()).unwrap();
-        ClientConfig::builder_with_provider(Arc::new(macula_pq::provider()))
-            .with_safe_default_protocol_versions()
-            .unwrap()
+        macula_pq::client_builder()
             .with_root_certificates(roots)
             .with_no_client_auth()
     }

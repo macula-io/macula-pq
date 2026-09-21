@@ -30,9 +30,9 @@
 > claimed](#what-is-not-claimed) for exactly what that means). It wipes
 > its secrets when they are dropped, measured on the heap, and both of
 > `macula-pq-kx`'s hybrids run on it.
-> **`macula-pq`'s `provider()` offers `SecP384r1MLKEM1024` then
-> `SecP256r1MLKEM768`, both on our ML-KEM, and nothing classical**; nothing
-> calls it yet. Every crate carries `publish =
+> **`macula-pq` hands out TLS configuration builders locked to
+> `SecP384r1MLKEM1024` then `SecP256r1MLKEM768`, both on our ML-KEM, and
+> nothing classical**; nothing uses them yet. Every crate carries `publish =
 > false` and nothing has been released. See [Status](#status) for what is
 > done and what is not.
 
@@ -71,7 +71,7 @@ ML-KEM, since TLS uses SHA-2.
 
 | Crate | What it is | State |
 |---|---|---|
-| **`macula-pq`** | **The facade. This is what you depend on.** | `provider()`: our two hybrids, nothing classical; no consumer calls it yet |
+| **`macula-pq`** | **The facade. This is what you depend on.** | `client_builder()` / `server_builder()`: locked to our two hybrids, nothing classical; no consumer uses them yet |
 | `macula-keccak` | Keccak-f[1600], SHA3-256/512, SHAKE128/256 | complete, NIST ACVP vectors passing |
 | `macula-mlkem` | ML-KEM (FIPS 203) | complete: NIST ACVP vectors passing, seeds from the OS, secrets wiped, timed |
 | `macula-pq-kx` | Hybrid TLS key exchange groups, including `SecP384r1MLKEM1024` | complete |
@@ -240,7 +240,7 @@ from its `crypto` library. No Rust implementation of `SecP384r1MLKEM1024`
 exists to exchange with, so **this is the only independent check of that
 composition**.
 
-It runs real TLS 1.3 handshakes over TCP between `provider()` and OTP, in
+It runs real TLS 1.3 handshakes over TCP between `macula-pq` and OTP, in
 both roles, with OTP offering one group at a time and a `ping`/`pong`
 crossing each connection. A classical-only OTP peer must be refused in
 both roles: the negative control. **Not part of the gate**, because it
@@ -310,9 +310,11 @@ counterpart; it is checked against OTP's `ssl`, outside the gate (see
   and none survives on the heap.
 - The timing harness, with a positive and a negative control.
   ML-KEM-768 and -1024 measured: no leak detected.
-- `macula-pq`: `provider()` offers `SecP384r1MLKEM1024` then
-  `SecP256r1MLKEM768`, from `macula-pq-kx`, and nothing classical. Tested
-  with real TLS 1.3 handshakes: two peers on it agree on
+- `macula-pq`: `client_builder()` and `server_builder()`, rustls builders
+  with the provider and TLS 1.3 already fixed, so no caller can change the
+  groups: `SecP384r1MLKEM1024` then `SecP256r1MLKEM768`, from
+  `macula-pq-kx`, and nothing classical. No function returns the provider
+  itself. Tested with real TLS 1.3 handshakes: two peers on it agree on
   `SecP384r1MLKEM1024`; a peer on `macula_quic`'s current list agrees on
   `SecP256r1MLKEM768`, our ML-KEM against `aws-lc-rs`'s, in both roles;
   and a classical-only peer cannot agree with it in either role.

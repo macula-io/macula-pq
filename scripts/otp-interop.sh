@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Interop between macula-pq's provider() and OTP's own ssl, the one
+# Interop between macula-pq's TLS configurations and OTP's own ssl, the one
 # independent implementation of SecP384r1MLKEM1024 there is. See
 # macula-pq/examples/otp_interop.rs for what each case checks.
 #

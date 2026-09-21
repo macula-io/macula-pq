@@ -33,11 +33,10 @@ name: Release to crates.io
 # Publication order is dependency order:
 #   macula-keccak -> macula-mlkem -> macula-pq-kx -> macula-pq
 #
-# ⚠ EVERY CRATE CURRENTLY CARRIES `publish = false`, ON PURPOSE. At the
-# time of writing `macula-mlkem` is a stub and `macula-pq`'s `provider()`
-# is a `todo!()`. A stray `v*` tag therefore CANNOT publish a stub: cargo
-# refuses. Remove `publish = false` from a crate only when that crate is
-# genuinely ready, one at a time. That flag is the last safety catch
+# ⚠ EVERY CRATE CARRIES `publish = false`, ON PURPOSE: nothing here has
+# been released, and the flag is what makes cargo refuse when a stray `v*`
+# tag runs this workflow. Remove `publish = false` from a crate only when
+# that crate is genuinely ready to publish, one at a time. That flag is the last safety catch
 # between an accidental tag and a published stub, so do not clear them all
 # in one sweep to "make the workflow work".
 

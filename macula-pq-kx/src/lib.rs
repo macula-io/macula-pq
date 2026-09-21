@@ -53,7 +53,7 @@
 //!   because both sides use this crate's.
 //! - **Both hybrids against OTP's `ssl`**, which implements them
 //!   independently: `scripts/otp-interop.sh`, a real TLS 1.3 handshake in
-//!   both roles through `macula-pq`'s `provider()`, OTP offering one group
+//!   both roles through `macula-pq`'s configuration builders, OTP offering one group
 //!   at a time. This is the only independent check of the
 //!   `SecP384r1MLKEM1024` composition, since no Rust implementation of it
 //!   exists to exchange with. It runs OUTSIDE the gate, because it needs
