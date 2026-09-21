@@ -52,6 +52,7 @@
 
 #![forbid(unsafe_code)]
 
+pub mod encode;
 pub mod poly;
 
 /// A FIPS 203 parameter set.
