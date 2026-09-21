@@ -19,6 +19,10 @@ internal = []
 macula-keccak = { path = "../macula-keccak" }
 # The OS CSPRNG, and nothing else. See the crate docs.
 getrandom = "0.4"
+# Wipes every secret when it is dropped: seeds, keys, noise, the message,
+# shared secrets. Raf's choice over hand-written volatile writes, which
+# would need unsafe code.
+zeroize = "1"
 
 [dev-dependencies]
 # This crate's own tests and examples switch `internal` on: the ACVP

@@ -55,6 +55,20 @@ fn no_two_encapsulations_to_one_key_are_the_same() {
     }
 }
 
+/// What a caller receives that is secret wipes itself when it is dropped:
+/// the decapsulation key and both sides' shared secret.
+#[test]
+fn the_secrets_a_caller_receives_wipe_themselves_on_drop() {
+    fn wipes_on_drop<T: zeroize::ZeroizeOnDrop>(_: &T) {}
+    for p in SETS {
+        let (ek, dk) = key_gen(p).unwrap();
+        wipes_on_drop(&dk);
+        let (c, sent) = encaps(p, &ek).unwrap();
+        wipes_on_drop(&sent);
+        wipes_on_drop(&decaps(p, &dk, &c).unwrap());
+    }
+}
+
 /// FIPS 203 section 7.2: a coefficient of `q` or more fails the modulus
 /// check. `0xff, 0x0f` encodes 4095 in the first 12-bit slot.
 #[test]

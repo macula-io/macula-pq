@@ -120,6 +120,7 @@ name = "macula-keccak"
 version = "0.1.0"
 dependencies = [
  "serde_json",
+ "zeroize",
 ]
 
 [[package]]
@@ -130,6 +131,7 @@ dependencies = [
  "macula-keccak",
  "macula-mlkem",
  "serde_json",
+ "zeroize",
 ]
 
 [[package]]

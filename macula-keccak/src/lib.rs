@@ -20,14 +20,18 @@
 //! and the distinction is the point rather than a caveat.
 //!
 //! "Written without secret-dependent branches" is a claim about the
-//! author's intentions. A timing measurement is evidence. An unmeasured
-//! constant-time claim reads as a guarantee and is an assertion: the same
-//! shape as a guard that is green and is not looking at anything.
-//!
-//! So a timing harness is a GATE on this work, not a follow-up to it, and
-//! the claim here will be restated in terms of what was measured once it
-//! exists. Until then this crate claims only what it avoids by
+//! author's intentions. A timing measurement is evidence. This crate is
+//! measured only inside `macula-mlkem`, whose timing harness hashes
+//! secret data through it; on its own it claims only what it avoids by
 //! construction.
+//!
+//! # Wiping
+//!
+//! The sponge state after absorbing a short message can be run backwards
+//! to it, so when the message is secret, so is the state. The one-shot
+//! functions wipe their state, and the padded final block, before
+//! returning; [`Shake128Reader`] wipes its state when dropped. Outputs are
+//! the caller's to wipe.
 //!
 //! # Verification
 //!
@@ -37,6 +41,8 @@
 //! after the standard never exercises a multi-block squeeze.
 
 #![forbid(unsafe_code)]
+
+use zeroize::{Zeroize, ZeroizeOnDrop, Zeroizing};
 
 /// Rate in bytes for each function, from FIPS 202: rate = 200 - 2 * (security strength / 8).
 const SHA3_256_RATE: usize = 136;
@@ -86,6 +92,15 @@ pub struct Shake128Reader {
     used: usize,
 }
 
+impl Drop for Shake128Reader {
+    fn drop(&mut self) {
+        self.state.zeroize();
+        self.buf.zeroize();
+    }
+}
+
+impl ZeroizeOnDrop for Shake128Reader {}
+
 impl Shake128Reader {
     /// Absorb `msg` and prepare to squeeze.
     pub fn new(msg: &[u8]) -> Self {
@@ -125,13 +140,13 @@ impl Shake128Reader {
 // ---------------------------------------------------------------------
 
 fn sponge(msg: &[u8], rate: usize, pad: u8, out: &mut [u8]) {
-    let mut state = [0u64; 25];
+    let mut state = Zeroizing::new([0u64; 25]);
     absorb(&mut state, msg, rate, pad);
     // ⚠ `absorb` ENDS with a permutation, so the first output block comes
     // from the state as it stands. Permuting again here would make every
     // first block the SECOND block, which is wrong for every input and
     // was this crate's first bug.
-    let mut block = [0u8; 200];
+    let mut block = Zeroizing::new([0u8; 200]);
     let mut done = 0;
     loop {
         squeeze_block(&state, &mut block[..rate]);
@@ -154,7 +169,7 @@ fn absorb(state: &mut [u64; 25], msg: &[u8], rate: usize, pad: u8) {
         keccak_f1600(state);
     }
     let tail = chunks.remainder();
-    let mut last = [0u8; 200];
+    let mut last = Zeroizing::new([0u8; 200]);
     last[..tail.len()].copy_from_slice(tail);
     last[tail.len()] ^= pad;
     last[rate - 1] ^= 0x80;

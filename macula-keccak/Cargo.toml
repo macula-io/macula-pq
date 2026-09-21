@@ -6,5 +6,12 @@ license = "Apache-2.0"
 description = "Keccak-f[1600], SHA3-256/512 and SHAKE128/256, implemented here rather than depended on"
 publish = false
 
+[dependencies]
+# Wipes the sponge state when a hash finishes or a reader is dropped. The
+# state after absorbing a short message can be run backwards to it, so
+# when the message is secret, so is the state. zeroize has no
+# dependencies of its own.
+zeroize = { version = "1", default-features = false }
+
 [dev-dependencies]
 serde_json = "1"

@@ -27,8 +27,9 @@
 > ACVP vector for ML-KEM-512, -768 and -1024**, implicit rejection and key
 > checks included, draws its seeds from the OS, and has been timed at
 > ML-KEM-768 and -1024: no leak detected (see [What is not
-> claimed](#what-is-not-claimed) for exactly what that means). It does not
-> yet wipe secrets after use, and `macula-pq-kx` does not use it yet.
+> claimed](#what-is-not-claimed) for exactly what that means). It wipes
+> its secrets when they are dropped, measured on the heap. `macula-pq-kx`
+> does not use it yet.
 > **`macula-pq`, the facade, is a stub.** Every crate carries `publish =
 > false` and nothing has been released. See [Status](#status) for what is
 > done and what is not.
@@ -67,14 +68,14 @@ ML-KEM, since TLS uses SHA-2.
 |---|---|---|
 | **`macula-pq`** | **The facade. This is what you depend on.** | **stub** |
 | `macula-keccak` | Keccak-f[1600], SHA3-256/512, SHAKE128/256 | complete, NIST ACVP vectors passing |
-| `macula-mlkem` | ML-KEM (FIPS 203) | NIST ACVP vectors passing, seeds from the OS, timed; **secrets not yet wiped after use** |
+| `macula-mlkem` | ML-KEM (FIPS 203) | complete: NIST ACVP vectors passing, seeds from the OS, secrets wiped, timed |
 | `macula-pq-kx` | Hybrid TLS key exchange groups, including `SecP384r1MLKEM1024` | complete |
 
 ⛔ **It is four crates rather than one with modules because the layering is
 load-bearing:**
 
-    macula-keccak   zero dependencies
-    macula-mlkem    keccak + OS randomness       no rustls
+    macula-keccak   zeroize only
+    macula-mlkem    keccak + OS randomness + zeroize    no rustls
     macula-pq-kx    rustls + aws-lc-rs           macula-mlkem not yet wired in
     macula-pq       facade
 
@@ -99,7 +100,9 @@ workspace, that profile's declaration was aspirational.
   SHAKE128 reader for multi-block squeezing.
 - **Byte-exact verification against the standards bodies' own test
   vectors**, vendored with provenance and per-file checksums.
-- **No `unsafe`** anywhere: every crate carries `#![forbid(unsafe_code)]`.
+- **No `unsafe` in any crate**: every crate carries `#![forbid(unsafe_code)]`.
+  The one file with `unsafe` in it is a test, `macula-mlkem/tests/heap_residue.rs`,
+  because the allocator it needs cannot be written without it.
 - **No copied constants.** Lengths are measured from live components and
   the NTT's zeta table is computed at compile time from its definition,
   because one mistyped digit in a transcribed table gives a coherent
@@ -237,6 +240,15 @@ own label, so none can pass for the wrong reason unnoticed. See
 [`macula-mlkem/vectors/README.md`](macula-mlkem/vectors/README.md) for
 provenance and checksums.
 
+**Wiping is measured on the heap.**
+[`heap_residue.rs`](macula-mlkem/tests/heap_residue.rs) replaces the
+global allocator and scans every block freed during key generation,
+encapsulation and both kinds of decapsulation, at all three parameter
+sets, for that run's secrets: seeds, PRF outputs, noise polynomials, the
+secret key, shared secrets. It finds none, and it does catch the two
+mistakes most likely to creep back: a key grown into its buffer instead
+of allocated at its final size, and a secret temporary left unwrapped.
+
 Where no vectors exist, the claim is stated as what it is.
 `macula-pq-kx`'s hybrid composition has none published, so it is verified
 **differentially** against rustls's independently written implementation of
@@ -255,7 +267,8 @@ the same draft, and its documentation says so rather than implying more.
   Every ACVP vector passes byte-exact. Key generation and encapsulation
   draw their seeds from the OS and return an error if it cannot supply
   them; the seeded forms are behind the testing-only `internal` feature,
-  as FIPS 203 sections 3.3 and 6 require.
+  as FIPS 203 sections 3.3 and 6 require. Secrets are wiped when dropped,
+  and none survives on the heap.
 - The timing harness, with a positive and a negative control.
   ML-KEM-768 and -1024 measured: no leak detected.
 - The gate: six checks, two build profiles, one script, run by the
@@ -263,9 +276,6 @@ the same draft, and its documentation says so rather than implying more.
 
 **Not done**
 
-- `macula-mlkem`: secrets are not wiped after use. Seeds, decapsulation
-  keys, shared secrets and the intermediate polynomials stay in memory
-  until it is reused.
 - `macula-pq-kx` onto `macula-mlkem`. Its ML-KEM-1024 comes from
   `aws-lc-rs`, through rustls.
 - `macula-pq`: `provider()` is a `todo!()`.
@@ -293,6 +303,11 @@ round constants are indexed by round number. **That is an argument, not a
 measurement.**
 
 `macula-pq-kx` has not been timed. Both its halves come from `aws-lc-rs`.
+
+**Wiping is measured on the heap only.** Values on the stack are wiped by
+construction, which safe code cannot observe, and copies the compiler
+makes when it moves or spills a value, or leaves in registers, are beyond
+any of it, as `zeroize` itself states.
 
 **MSRV is not established.** The gate runs on stable; no minimum has been
 determined or tested.

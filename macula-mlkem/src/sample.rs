@@ -19,6 +19,7 @@
 //! ⚠ Still an argument from shape, not a measurement. See the crate docs.
 
 use macula_keccak::{shake256, Shake128Reader};
+use zeroize::Zeroizing;
 
 use crate::poly::{Poly, N, Q};
 
@@ -83,11 +84,14 @@ pub fn sample_poly_cbd(eta: usize, bytes: &[u8]) -> Poly {
 }
 
 /// FIPS 203 section 4.1: `PRF_eta(s, b) = SHAKE256(s || b, 64 * eta)`.
-pub fn prf(eta: usize, s: &[u8; 32], b: u8) -> Vec<u8> {
-    let mut input = [0u8; 33];
+///
+/// Its only inputs are the secret seeds `sigma` and `r`, so the input and
+/// the output are both wiped when dropped.
+pub fn prf(eta: usize, s: &[u8; 32], b: u8) -> Zeroizing<Vec<u8>> {
+    let mut input = Zeroizing::new([0u8; 33]);
     input[..32].copy_from_slice(s);
     input[32] = b;
-    let mut out = vec![0u8; 64 * eta];
-    shake256(&input, &mut out);
+    let mut out = Zeroizing::new(vec![0u8; 64 * eta]);
+    shake256(&*input, &mut out);
     out
 }

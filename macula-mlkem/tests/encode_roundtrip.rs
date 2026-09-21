@@ -22,8 +22,10 @@ fn encode_then_decode_is_the_identity() {
             for c in f.iter_mut() {
                 *c = lcg(&mut seed, bound);
             }
-            let bytes = byte_encode(d, &f);
-            assert_eq!(bytes.len(), 32 * d, "ByteEncode_{d} length");
+            // A DIRTY buffer: the encoder ORs bits in, so it must clear
+            // what the caller's buffer held before.
+            let mut bytes = vec![0xaau8; 32 * d];
+            byte_encode(d, &f, &mut bytes);
             assert_eq!(byte_decode(d, &bytes), f, "d = {d}");
         }
     }

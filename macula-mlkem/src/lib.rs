@@ -23,6 +23,23 @@
 //! unpredictable, so it is the one place a bug would be invisible to the
 //! method everything else here relies on.
 //!
+//! # Wiping secrets
+//!
+//! Every secret is wiped when it is dropped, using the `zeroize` crate:
+//! seeds, the secret key, noise polynomials, the message, shared secrets,
+//! and the values decryption derives from them. What a caller receives
+//! that is secret comes as [`Zeroizing`], which wipes itself too: the
+//! decapsulation key and the shared secret. Every buffer holding a secret
+//! is allocated at its final size, because a buffer that grows leaves a
+//! copy of its old contents behind.
+//!
+//! **The heap is measured**: `tests/heap_residue.rs` scans every block
+//! freed during key generation, encapsulation and both kinds of
+//! decapsulation for that run's secrets, and finds none. **The stack is
+//! wiped by construction**, which safe code cannot observe, and copies the
+//! compiler makes when it moves or spills a value are beyond any of it, as
+//! `zeroize` itself states.
+//!
 //! # The `internal` feature
 //!
 //! Key generation and encapsulation with caller-supplied seeds (FIPS 203
@@ -84,6 +101,10 @@ pub mod sample;
 #[cfg(not(feature = "internal"))]
 mod sample;
 
+/// The wrapper every secret output comes in: it wipes its contents when
+/// dropped. Re-exported so a caller can name the type.
+pub use zeroize::Zeroizing;
+
 /// A FIPS 203 parameter set.
 ///
 /// The fields are the specification's own names, so a reader can check
@@ -142,16 +163,17 @@ pub enum Error {
 /// FIPS 203 Algorithm 19, `ML-KEM.KeyGen`: `d` and `z` are drawn from the
 /// OS.
 ///
-/// Returns `(ek, dk)`.
-pub fn key_gen(p: ParameterSet) -> Result<(Vec<u8>, Vec<u8>), Error> {
+/// Returns `(ek, dk)`. `dk` wipes itself when dropped.
+pub fn key_gen(p: ParameterSet) -> Result<(Vec<u8>, Zeroizing<Vec<u8>>), Error> {
     key_gen_drawing_from(p, os_random)
 }
 
 /// FIPS 203 Algorithm 20, `ML-KEM.Encaps`, preceded by the section 7.2
 /// input check: `m` is drawn from the OS.
 ///
-/// Returns `(c, k)`: the ciphertext to send, and the shared secret.
-pub fn encaps(p: ParameterSet, ek: &[u8]) -> Result<(Vec<u8>, [u8; 32]), Error> {
+/// Returns `(c, k)`: the ciphertext to send, and the shared secret, which
+/// wipes itself when dropped.
+pub fn encaps(p: ParameterSet, ek: &[u8]) -> Result<(Vec<u8>, Zeroizing<[u8; 32]>), Error> {
     encaps_drawing_from(p, ek, os_random)
 }
 
@@ -160,11 +182,11 @@ pub fn encaps(p: ParameterSet, ek: &[u8]) -> Result<(Vec<u8>, [u8; 32]), Error> 
 fn key_gen_drawing_from(
     p: ParameterSet,
     mut random: impl FnMut(&mut [u8]) -> Result<(), Error>,
-) -> Result<(Vec<u8>, Vec<u8>), Error> {
-    let mut d = [0u8; 32];
-    let mut z = [0u8; 32];
-    random(&mut d)?;
-    random(&mut z)?;
+) -> Result<(Vec<u8>, Zeroizing<Vec<u8>>), Error> {
+    let mut d = Zeroizing::new([0u8; 32]);
+    let mut z = Zeroizing::new([0u8; 32]);
+    random(&mut *d)?;
+    random(&mut *z)?;
     Ok(internal::key_gen(p, &d, &z))
 }
 
@@ -173,9 +195,9 @@ fn encaps_drawing_from(
     p: ParameterSet,
     ek: &[u8],
     mut random: impl FnMut(&mut [u8]) -> Result<(), Error>,
-) -> Result<(Vec<u8>, [u8; 32]), Error> {
-    let mut m = [0u8; 32];
-    random(&mut m)?;
+) -> Result<(Vec<u8>, Zeroizing<[u8; 32]>), Error> {
+    let mut m = Zeroizing::new([0u8; 32]);
+    random(&mut *m)?;
     internal::encaps(p, ek, &m)
 }
 
@@ -195,7 +217,9 @@ fn encaps_key_len(p: ParameterSet) -> usize {
 /// does not re-encrypt, NOT an error. That is the implicit rejection path,
 /// and an implementation that returns an error instead passes every
 /// happy-path vector while failing half the decapsulation ones.
-pub fn decaps(p: ParameterSet, dk: &[u8], c: &[u8]) -> Result<[u8; 32], Error> {
+///
+/// The shared secret wipes itself when dropped.
+pub fn decaps(p: ParameterSet, dk: &[u8], c: &[u8]) -> Result<Zeroizing<[u8; 32]>, Error> {
     // FIPS 203 section 7.3 input checks. These inspect lengths and the
     // public half of dk, so early exits here leak nothing secret.
     if c.len() != ciphertext_len(p) || dk.len() != decaps_key_len(p) {
@@ -212,12 +236,13 @@ pub fn decaps(p: ParameterSet, dk: &[u8], c: &[u8]) -> Result<[u8; 32], Error> {
     let z = &dk[768 * k + 64..768 * k + 96];
 
     let m_prime = kpke::decrypt(p, dk_pke, c);
-    let mut seed = [0u8; 64];
-    seed[..32].copy_from_slice(&m_prime);
+    let mut seed = Zeroizing::new([0u8; 64]);
+    seed[..32].copy_from_slice(&*m_prime);
     seed[32..].copy_from_slice(h);
-    let (k_prime, r_prime) = hash::g(&seed);
+    let (k_prime, r_prime) = hash::g(&*seed);
 
-    let mut rejection_input = Vec::with_capacity(32 + c.len());
+    // z || c, allocated at its final size so it never moves: z is secret.
+    let mut rejection_input = Zeroizing::new(Vec::with_capacity(32 + c.len()));
     rejection_input.extend_from_slice(z);
     rejection_input.extend_from_slice(c);
     let k_bar = hash::j(&rejection_input);
@@ -228,7 +253,11 @@ pub fn decaps(p: ParameterSet, dk: &[u8], c: &[u8]) -> Result<[u8; 32], Error> {
     // Then select, also without a branch: implicit rejection returns the
     // pseudorandom k_bar for a bad ciphertext, never an error.
     let c_prime = kpke::encrypt(p, ek_pke, &m_prime, &r_prime);
-    Ok(ct_select(ct_eq(c, &c_prime), &k_prime, &k_bar))
+    Ok(Zeroizing::new(ct_select(
+        ct_eq(c, &c_prime),
+        &k_prime,
+        &k_bar,
+    )))
 }
 
 /// `32 * (du * k + dv)` bytes.
@@ -278,7 +307,9 @@ fn ct_select(mask: u8, a: &[u8; 32], b: &[u8; 32]) -> [u8; 32] {
 pub fn encaps_key_valid(p: ParameterSet, ek: &[u8]) -> bool {
     ek.len() == encaps_key_len(p)
         && ek[..384 * p.k].as_chunks::<384>().0.iter().all(|chunk| {
-            encode::byte_encode(12, &encode::byte_decode(12, chunk)) == chunk.as_slice()
+            let mut again = [0u8; 384];
+            encode::byte_encode(12, &encode::byte_decode(12, chunk), &mut again);
+            again == *chunk
         })
 }
 

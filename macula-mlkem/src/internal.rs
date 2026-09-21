@@ -14,15 +14,20 @@
 //! directly, so this is the form that can be checked byte-exactly, and
 //! because the timing harness needs a fixed `m` to compare against.
 
-use crate::{encaps_key_len, encaps_key_valid, hash, kpke, Error, ParameterSet};
+use zeroize::Zeroizing;
+
+use crate::{decaps_key_len, encaps_key_len, encaps_key_valid, hash, kpke, Error, ParameterSet};
 
 /// FIPS 203 Algorithm 16, `ML-KEM.KeyGen_internal`.
 ///
-/// Returns `(ek, dk)`.
-pub fn key_gen(p: ParameterSet, d: &[u8; 32], z: &[u8; 32]) -> (Vec<u8>, Vec<u8>) {
+/// Returns `(ek, dk)`. `dk` wipes itself when dropped.
+pub fn key_gen(p: ParameterSet, d: &[u8; 32], z: &[u8; 32]) -> (Vec<u8>, Zeroizing<Vec<u8>>) {
     let (ek, dk_pke) = kpke::key_gen(p, d);
-    // dk = dk_pke || ek || H(ek) || z, FIPS 203 Algorithm 16.
-    let mut dk = dk_pke;
+    // dk = dk_pke || ek || H(ek) || z, FIPS 203 Algorithm 16. Allocated at
+    // its final size: extending `dk_pke` instead would reallocate and
+    // leave a copy of the secret key behind.
+    let mut dk = Zeroizing::new(Vec::with_capacity(decaps_key_len(p)));
+    dk.extend_from_slice(&dk_pke);
     dk.extend_from_slice(&ek);
     dk.extend_from_slice(&hash::h(&ek));
     dk.extend_from_slice(z);
@@ -32,8 +37,12 @@ pub fn key_gen(p: ParameterSet, d: &[u8; 32], z: &[u8; 32]) -> (Vec<u8>, Vec<u8>
 /// FIPS 203 Algorithm 17, `ML-KEM.Encaps_internal`, preceded by the
 /// section 7.2 input check.
 ///
-/// Returns `(c, k)`.
-pub fn encaps(p: ParameterSet, ek: &[u8], m: &[u8; 32]) -> Result<(Vec<u8>, [u8; 32]), Error> {
+/// Returns `(c, k)`. `k` wipes itself when dropped.
+pub fn encaps(
+    p: ParameterSet,
+    ek: &[u8],
+    m: &[u8; 32],
+) -> Result<(Vec<u8>, Zeroizing<[u8; 32]>), Error> {
     if ek.len() != encaps_key_len(p) {
         return Err(Error::WrongLength);
     }
@@ -41,9 +50,9 @@ pub fn encaps(p: ParameterSet, ek: &[u8], m: &[u8; 32]) -> Result<(Vec<u8>, [u8;
         return Err(Error::EncapsKeyInvalid);
     }
     // (K, r) = G(m || H(ek)), FIPS 203 Algorithm 17.
-    let mut seed = [0u8; 64];
+    let mut seed = Zeroizing::new([0u8; 64]);
     seed[..32].copy_from_slice(m);
     seed[32..].copy_from_slice(&hash::h(ek));
-    let (shared, r) = hash::g(&seed);
+    let (shared, r) = hash::g(&*seed);
     Ok((kpke::encrypt(p, ek, m, &r), shared))
 }

@@ -307,7 +307,7 @@ fn encaps_matches_acvp() {
                 set,
                 tc,
                 "shared secret",
-                &k,
+                &k[..],
                 &hex(want["k"].as_str().unwrap()),
             );
         }
@@ -351,7 +351,7 @@ fn decaps_matches_acvp_including_implicit_rejection() {
                 set,
                 tc,
                 &format!("shared secret [{reason}]"),
-                &k,
+                &k[..],
                 &hex(want["k"].as_str().unwrap()),
             );
         }

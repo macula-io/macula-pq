@@ -1,12 +1,19 @@
 //! K-PKE, FIPS 203 section 5: the CPA-secure public-key encryption scheme
 //! ML-KEM is built from. Not exposed: its keys are only meaningful inside
 //! the Fujisaki-Okamoto transform in `lib.rs`.
+//!
+//! ⚠ Every secret is wrapped where it is made: the noise vectors, the
+//! secret key and its encoding, the message polynomial, and decryption's
+//! intermediate values. Every buffer holding one is allocated at its
+//! final size, because a buffer that grows leaves a copy of what it held
+//! wherever it was before. `tests/heap_residue.rs` checks the heap.
 
 use crate::encode::{byte_decode, byte_encode, compress_poly, decompress_poly};
 use crate::hash::g;
 use crate::poly::{intt, multiply_ntts, ntt, poly_add, poly_sub, Poly, N};
 use crate::sample::{prf, sample_ntt, sample_poly_cbd};
 use crate::ParameterSet;
+use zeroize::Zeroizing;
 
 /// The matrix `A` in the NTT domain, expanded from `rho`.
 ///
@@ -30,14 +37,18 @@ pub fn matrix(k: usize, rho: &[u8; 32]) -> Vec<Vec<Poly>> {
 }
 
 /// `k` noise polynomials from consecutive PRF counters, starting at `*n`.
-pub fn noise(eta: usize, k: usize, sigma: &[u8; 32], n: &mut u8) -> Vec<Poly> {
-    (0..k)
-        .map(|_| {
-            let f = sample_poly_cbd(eta, &prf(eta, sigma, *n));
-            *n += 1;
-            f
-        })
-        .collect()
+/// Secret, so wiped when dropped; `collect` from a counted range
+/// allocates once.
+pub fn noise(eta: usize, k: usize, sigma: &[u8; 32], n: &mut u8) -> Zeroizing<Vec<Poly>> {
+    Zeroizing::new(
+        (0..k)
+            .map(|_| {
+                let f = sample_poly_cbd(eta, &prf(eta, sigma, *n));
+                *n += 1;
+                f
+            })
+            .collect(),
+    )
 }
 
 /// `sum_j a[j] * b[j]` in the NTT domain.
@@ -48,14 +59,14 @@ pub fn inner_product(a: &[Poly], b: &[Poly]) -> Poly {
 }
 
 /// FIPS 203 Algorithm 13, K-PKE.KeyGen. Returns `(ek_pke, dk_pke)`.
-pub fn key_gen(p: ParameterSet, d: &[u8; 32]) -> (Vec<u8>, Vec<u8>) {
+pub fn key_gen(p: ParameterSet, d: &[u8; 32]) -> (Vec<u8>, Zeroizing<Vec<u8>>) {
     // (rho, sigma) = G(d || k). The trailing k byte is FIPS 203's domain
     // separation between parameter sets; without it the same d would give
     // related keys at every security level.
-    let mut seed = [0u8; 33];
+    let mut seed = Zeroizing::new([0u8; 33]);
     seed[..32].copy_from_slice(d);
     seed[32] = p.k as u8;
-    let (rho, sigma) = g(&seed);
+    let (rho, sigma) = g(&*seed);
 
     let a = matrix(p.k, &rho);
     let mut n = 0u8;
@@ -70,9 +81,16 @@ pub fn key_gen(p: ParameterSet, d: &[u8; 32]) -> (Vec<u8>, Vec<u8>) {
         .map(|(row, ei)| poly_add(&inner_product(row, &s), ei))
         .collect();
 
-    let mut ek: Vec<u8> = t.iter().flat_map(|ti| byte_encode(12, ti)).collect();
-    ek.extend_from_slice(&rho);
-    let dk: Vec<u8> = s.iter().flat_map(|si| byte_encode(12, si)).collect();
+    let mut ek = vec![0u8; 384 * p.k + 32];
+    let (t_bytes, rho_bytes) = ek.split_at_mut(384 * p.k);
+    for (chunk, ti) in t_bytes.as_chunks_mut::<384>().0.iter_mut().zip(t.iter()) {
+        byte_encode(12, ti, chunk);
+    }
+    rho_bytes.copy_from_slice(&*rho);
+    let mut dk = Zeroizing::new(vec![0u8; 384 * p.k]);
+    for (chunk, si) in dk.as_chunks_mut::<384>().0.iter_mut().zip(s.iter()) {
+        byte_encode(12, si, chunk);
+    }
     (ek, dk)
 }
 
@@ -95,7 +113,7 @@ pub fn encrypt(p: ParameterSet, ek: &[u8], m: &[u8; 32], r: &[u8; 32]) -> Vec<u8
     let mut n = 0u8;
     let mut y = noise(p.eta1, k, r, &mut n);
     let e1 = noise(p.eta2, k, r, &mut n);
-    let e2 = sample_poly_cbd(p.eta2, &prf(p.eta2, r, n));
+    let e2 = Zeroizing::new(sample_poly_cbd(p.eta2, &prf(p.eta2, r, n)));
     y.iter_mut().for_each(ntt);
 
     // u = NTT^-1(A^T * y) + e1. The TRANSPOSE: u[i] takes column i of A,
@@ -111,16 +129,18 @@ pub fn encrypt(p: ParameterSet, ek: &[u8], m: &[u8; 32], r: &[u8; 32]) -> Vec<u8
         })
         .collect();
 
-    let mu = decompress_poly(1, &byte_decode(1, m));
+    let m_bits = Zeroizing::new(byte_decode(1, m));
+    let mu = Zeroizing::new(decompress_poly(1, &m_bits));
     let mut v = inner_product(&t, &y);
     intt(&mut v);
     let v = poly_add(&poly_add(&v, &e2), &mu);
 
-    let mut c: Vec<u8> = u
-        .iter()
-        .flat_map(|ui| byte_encode(p.du, &compress_poly(p.du, ui)))
-        .collect();
-    c.extend(byte_encode(p.dv, &compress_poly(p.dv, &v)));
+    let mut c = vec![0u8; 32 * (p.du * k + p.dv)];
+    let (c1, c2) = c.split_at_mut(32 * p.du * k);
+    for (chunk, ui) in c1.chunks_exact_mut(32 * p.du).zip(u.iter()) {
+        byte_encode(p.du, &compress_poly(p.du, ui), chunk);
+    }
+    byte_encode(p.dv, &compress_poly(p.dv, &v), c2);
     c
 }
 
@@ -129,26 +149,28 @@ pub fn encrypt(p: ParameterSet, ek: &[u8], m: &[u8; 32], r: &[u8; 32]) -> Vec<u8
 /// Runs on the secret key. Every step is arithmetic over fixed-size
 /// buffers; the only data-dependent choices are lengths, which the
 /// parameter set fixes.
-pub fn decrypt(p: ParameterSet, dk_pke: &[u8], c: &[u8]) -> [u8; 32] {
+pub fn decrypt(p: ParameterSet, dk_pke: &[u8], c: &[u8]) -> Zeroizing<[u8; 32]> {
     let (c1, c2) = c.split_at(32 * p.du * p.k);
     let mut u: Vec<Poly> = c1
         .chunks_exact(32 * p.du)
         .map(|chunk| decompress_poly(p.du, &byte_decode(p.du, chunk)))
         .collect();
     let v = decompress_poly(p.dv, &byte_decode(p.dv, c2));
-    let s: Vec<Poly> = dk_pke
-        .as_chunks::<384>()
-        .0
-        .iter()
-        .map(|chunk| byte_decode(12, chunk))
-        .collect();
+    let s: Zeroizing<Vec<Poly>> = Zeroizing::new(
+        dk_pke
+            .as_chunks::<384>()
+            .0
+            .iter()
+            .map(|chunk| byte_decode(12, chunk))
+            .collect(),
+    );
 
     u.iter_mut().for_each(ntt);
-    let mut su = inner_product(&s, &u);
+    let mut su = Zeroizing::new(inner_product(&s, &u));
     intt(&mut su);
-    let w = poly_sub(&v, &su);
+    let w = Zeroizing::new(poly_sub(&v, &su));
 
-    let mut m = [0u8; 32];
-    m.copy_from_slice(&byte_encode(1, &compress_poly(1, &w)));
+    let mut m = Zeroizing::new([0u8; 32]);
+    byte_encode(1, &Zeroizing::new(compress_poly(1, &w)), &mut *m);
     m
 }

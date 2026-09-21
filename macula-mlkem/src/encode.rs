@@ -9,9 +9,14 @@
 use crate::poly::{Poly, N, Q};
 
 /// FIPS 203 Algorithm 5, ByteEncode_d: pack 256 `d`-bit integers into
-/// `32 * d` bytes, little-endian across the bit stream.
-pub fn byte_encode(d: usize, f: &Poly) -> Vec<u8> {
-    let mut out = vec![0u8; 32 * d];
+/// the `32 * d` bytes of `out`, little-endian across the bit stream.
+///
+/// ⚠ Writes into the caller's buffer rather than returning one. Encoding
+/// a secret key into a temporary that is then copied and dropped leaves
+/// the key on the heap; the caller's buffer is sized once and wiped once.
+pub fn byte_encode(d: usize, f: &Poly, out: &mut [u8]) {
+    assert_eq!(out.len(), 32 * d, "ByteEncode_{d} writes {} bytes", 32 * d);
+    out.fill(0);
     let mut bit = 0usize;
     for &coeff in f.iter() {
         let v = coeff as u32;
@@ -21,7 +26,6 @@ pub fn byte_encode(d: usize, f: &Poly) -> Vec<u8> {
             bit += 1;
         }
     }
-    out
 }
 
 /// FIPS 203 Algorithm 6, ByteDecode_d.
