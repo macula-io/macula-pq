@@ -266,7 +266,7 @@ fn key_gen_matches_acvp() {
             let tc = t["tcId"].as_u64().unwrap();
             let d: [u8; 32] = hex(t["d"].as_str().unwrap()).try_into().unwrap();
             let z: [u8; 32] = hex(t["z"].as_str().unwrap()).try_into().unwrap();
-            let (ek, dk) = macula_mlkem::key_gen(param(set), &d, &z);
+            let (ek, dk) = macula_mlkem::internal::key_gen(param(set), &d, &z);
             let want = &exp[&tc];
             compare(
                 set,
@@ -299,7 +299,7 @@ fn encaps_matches_acvp() {
             let tc = t["tcId"].as_u64().unwrap();
             let ek = hex(t["ek"].as_str().unwrap());
             let m: [u8; 32] = hex(t["m"].as_str().unwrap()).try_into().unwrap();
-            let (c, k) = macula_mlkem::encaps(param(set), &ek, &m)
+            let (c, k) = macula_mlkem::internal::encaps(param(set), &ek, &m)
                 .unwrap_or_else(|e| panic!("{set} tcId {tc} encapsulation refused: {e:?}"));
             let want = &exp[&tc];
             compare(set, tc, "ciphertext", &c, &hex(want["c"].as_str().unwrap()));

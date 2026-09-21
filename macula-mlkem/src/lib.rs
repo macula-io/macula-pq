@@ -1,62 +1,88 @@
 //! ML-KEM (FIPS 203), implemented here rather than depended on.
 //!
-//! ⚠ NOT YET IMPLEMENTED. This crate exists so the workspace shape is
-//! visible and the eventual move to `macula-io/macula-pq` is a `git mv`.
+//! **Built on `macula-keccak`, deliberately.** FIPS 203 is built on
+//! SHA3-256, SHA3-512, SHAKE128 and SHAKE256, so implementing ML-KEM while
+//! taking Keccak from a third party would relocate the dependency rather
+//! than remove it.
 //!
-//! **It is built second, on `macula-keccak`, deliberately.** FIPS 203 is
-//! built on SHA3-256, SHA3-512, SHAKE128 and SHAKE256, so implementing
-//! ML-KEM while taking Keccak from a third party would relocate the
-//! dependency rather than remove it.
+//! # API
 //!
-//! Verification will be **byte-exact against NIST's own ACVP vectors**
-//! (`usnistgov/ACVP-Server`), covering key generation, encapsulation and
-//! decapsulation, **including the implicit-rejection vectors**: FIPS 203
-//! returns a deterministic pseudorandom secret for a modified ciphertext
-//! rather than an error, and an implementation that errors instead passes
-//! every happy-path vector.
+//! - [`key_gen`] and [`encaps`]: FIPS 203 Algorithms 19 and 20. Their
+//!   seeds are drawn from the OS, and if it cannot supply them the result
+//!   is [`Error::RandomnessUnavailable`], as those algorithms require.
+//! - [`decaps`]: Algorithm 18, with implicit rejection. A ciphertext that
+//!   does not re-encrypt yields a pseudorandom secret, not an error.
+//! - [`encaps_key_valid`] and [`decaps_key_valid`]: the section 7.2 and
+//!   7.3 input checks.
 //!
-//! # ⚠ The timing harness is a GATE on this crate, not a follow-up
+//! # Randomness comes from the OS, and nothing else
 //!
-//! Unlike Keccak, ML-KEM has real places to leak: rejection sampling, the
-//! NTT, compression, any secret-dependent branch or table index. Writing
-//! it without those is necessary and is **not evidence that it is free of
-//! them**.
+//! Not `aws-lc-rs`, and not ours: a hand-written CSPRNG is the one piece of
+//! this workspace where rolling your own would be unambiguously wrong,
+//! because randomness has no test vectors. You cannot test that output is
+//! unpredictable, so it is the one place a bug would be invisible to the
+//! method everything else here relies on.
 //!
-//! **Shipping our own ML-KEM with an unverified timing claim would be
-//! worse than keeping the dependency it replaces.** aws-lc-rs's
-//! implementation has had that analysis; ours would merely look finished.
-//! That inverts the reason for doing this at all.
+//! # The `internal` feature
 //!
-//! So this crate is not done when the ACVP vectors pass. It is done when
-//! a harness MEASURES the property and the docs state what was measured
-//! rather than what the code avoids. If the harness finds a leak, that is
-//! the tool working and the finding gets reported.
+//! Key generation and encapsulation with caller-supplied seeds (FIPS 203
+//! Algorithms 16 and 17), and the arithmetic, are public only with the
+//! `internal` feature, and it is for testing. FIPS 203 sections 3.3 and 6
+//! say those interfaces "should not be made available to applications
+//! other than for testing purposes": whoever chooses `m` knows the shared
+//! secret. They exist because NIST's vectors supply `d`, `z` and `m`
+//! directly, which is what makes byte-exact verification possible at all.
 //!
-//! # Randomness, and why the core API is derandomised
+//! # Verification
 //!
-//! Key generation and encapsulation take randomness from the **OS
-//! CSPRNG**, trusted as part of the platform. Not `aws-lc-rs`, and not
-//! ours: a hand-written CSPRNG is the one piece of this workspace where
-//! rolling your own would be unambiguously wrong, because randomness has
-//! no test vectors. You cannot test that output is unpredictable, so it is
-//! the one place a bug would be invisible to the method everything else
-//! here relies on.
+//! Byte-exact against NIST's ACVP vectors, at ML-KEM-512, -768 and -1024:
+//! key generation, encapsulation, decapsulation and both key checks, 285
+//! cases, with the fifteen implicit-rejection cases each identified by
+//! NIST's own label (`tests/acvp.rs`; provenance in `vectors/README.md`).
 //!
-//! The consequence for the API: the core operations are **derandomised**,
-//! taking their seeds as arguments, with thin wrappers that fill those
-//! seeds from the OS. That is not a stylistic choice. **The ACVP vectors
-//! supply `d`, `z` and `m` directly**, so a derandomised core is what
-//! makes the implementation testable against them at all; an API that
-//! only ever drew its own randomness could not be checked byte-exactly
-//! against anything.
+//! # Timing: measured, and what that means
+//!
+//! `scripts/timing.sh` times decapsulation and encapsulation in a release
+//! build. Its verdict is only worth something because it is calibrated:
+//! its positive control is a leak of the size the constant-time compare
+//! exists to prevent, planted after a real decapsulation. A copy of
+//! [`decaps`] with that compare replaced by `==` and a branch is flagged by
+//! the valid-against-invalid test. A dudect-style harness testing the two
+//! classes as independent samples did not flag that copy at 100,000
+//! measurements; see `examples/timing.rs` for the method and the confounds
+//! its negative control exposed. The latest result is in the workspace
+//! README.
+//!
+//! **"No division on secret data" is asserted by construction, not
+//! established by that harness**, which has never been calibrated against
+//! a planted division. Compression multiplies and shifts, ByteDecode at
+//! 12 bits subtracts under a mask, and compression is tested equal to the
+//! division formula for every input. The only `/` and `%` left are
+//! evaluated at compile time, or divide loop counters, bit indices and
+//! public bytes by powers of two.
 
 #![forbid(unsafe_code)]
 
+// The seeded algorithms and the arithmetic are public only with the
+// `internal` feature, which is for testing: see `internal`'s docs.
+#[cfg(feature = "internal")]
 pub mod encode;
+#[cfg(not(feature = "internal"))]
+mod encode;
 mod hash;
+#[cfg(feature = "internal")]
+pub mod internal;
+#[cfg(not(feature = "internal"))]
+mod internal;
 mod kpke;
+#[cfg(feature = "internal")]
 pub mod poly;
+#[cfg(not(feature = "internal"))]
+mod poly;
+#[cfg(feature = "internal")]
 pub mod sample;
+#[cfg(not(feature = "internal"))]
+mod sample;
 
 /// A FIPS 203 parameter set.
 ///
@@ -107,42 +133,55 @@ pub enum Error {
     DecapsKeyInvalid,
     /// A byte string was not the length its parameter set requires.
     WrongLength,
+    /// The OS could not supply randomness. FIPS 203 Algorithms 19 and 20
+    /// return an error here rather than build anything from a seed that
+    /// was not drawn.
+    RandomnessUnavailable,
 }
 
-/// FIPS 203 Algorithm 16, derandomised: `d` and `z` are supplied rather
-/// than drawn.
-///
-/// ⚠ Derandomised because the ACVP vectors supply `d` and `z` directly,
-/// so this is the form that can be checked byte-exactly. The wrapper that
-/// draws them from the OS CSPRNG sits on top; see the crate docs.
+/// FIPS 203 Algorithm 19, `ML-KEM.KeyGen`: `d` and `z` are drawn from the
+/// OS.
 ///
 /// Returns `(ek, dk)`.
-pub fn key_gen(p: ParameterSet, d: &[u8; 32], z: &[u8; 32]) -> (Vec<u8>, Vec<u8>) {
-    let (ek, dk_pke) = kpke::key_gen(p, d);
-    // dk = dk_pke || ek || H(ek) || z, FIPS 203 Algorithm 16.
-    let mut dk = dk_pke;
-    dk.extend_from_slice(&ek);
-    dk.extend_from_slice(&hash::h(&ek));
-    dk.extend_from_slice(z);
-    (ek, dk)
+pub fn key_gen(p: ParameterSet) -> Result<(Vec<u8>, Vec<u8>), Error> {
+    key_gen_drawing_from(p, os_random)
 }
 
-/// FIPS 203 Algorithm 17, derandomised: `m` is supplied rather than drawn.
+/// FIPS 203 Algorithm 20, `ML-KEM.Encaps`, preceded by the section 7.2
+/// input check: `m` is drawn from the OS.
 ///
-/// Returns `(c, k)`.
-pub fn encaps(p: ParameterSet, ek: &[u8], m: &[u8; 32]) -> Result<(Vec<u8>, [u8; 32]), Error> {
-    if ek.len() != encaps_key_len(p) {
-        return Err(Error::WrongLength);
-    }
-    if !encaps_key_valid(p, ek) {
-        return Err(Error::EncapsKeyInvalid);
-    }
-    // (K, r) = G(m || H(ek)), FIPS 203 Algorithm 17.
-    let mut seed = [0u8; 64];
-    seed[..32].copy_from_slice(m);
-    seed[32..].copy_from_slice(&hash::h(ek));
-    let (shared, r) = hash::g(&seed);
-    Ok((kpke::encrypt(p, ek, m, &r), shared))
+/// Returns `(c, k)`: the ciphertext to send, and the shared secret.
+pub fn encaps(p: ParameterSet, ek: &[u8]) -> Result<(Vec<u8>, [u8; 32]), Error> {
+    encaps_drawing_from(p, ek, os_random)
+}
+
+/// [`key_gen`] with its randomness source as a parameter, so the tests
+/// can see what is drawn and make the source fail.
+fn key_gen_drawing_from(
+    p: ParameterSet,
+    mut random: impl FnMut(&mut [u8]) -> Result<(), Error>,
+) -> Result<(Vec<u8>, Vec<u8>), Error> {
+    let mut d = [0u8; 32];
+    let mut z = [0u8; 32];
+    random(&mut d)?;
+    random(&mut z)?;
+    Ok(internal::key_gen(p, &d, &z))
+}
+
+/// [`encaps`] with its randomness source as a parameter.
+fn encaps_drawing_from(
+    p: ParameterSet,
+    ek: &[u8],
+    mut random: impl FnMut(&mut [u8]) -> Result<(), Error>,
+) -> Result<(Vec<u8>, [u8; 32]), Error> {
+    let mut m = [0u8; 32];
+    random(&mut m)?;
+    internal::encaps(p, ek, &m)
+}
+
+/// The OS CSPRNG, and nothing else: see the crate docs.
+fn os_random(buf: &mut [u8]) -> Result<(), Error> {
+    getrandom::fill(buf).map_err(|_| Error::RandomnessUnavailable)
 }
 
 /// `384k + 32` bytes: `k` polynomials at 12 bits, then `rho`.
@@ -255,7 +294,93 @@ pub fn decaps_key_valid(p: ParameterSet, dk: &[u8]) -> bool {
 
 #[cfg(test)]
 mod tests {
-    use super::{ct_eq, ct_select};
+    use super::{
+        ct_eq, ct_select, encaps_drawing_from, internal, key_gen_drawing_from, Error, ParameterSet,
+        ML_KEM_1024, ML_KEM_512, ML_KEM_768,
+    };
+
+    const SETS: [ParameterSet; 3] = [ML_KEM_512, ML_KEM_768, ML_KEM_1024];
+
+    /// A source that hands out 0, 1, 2, ... in order, so a test can tell
+    /// which drawn bytes went where.
+    fn counting() -> impl FnMut(&mut [u8]) -> Result<(), Error> {
+        let mut next = 0u8;
+        move |buf| {
+            for b in buf.iter_mut() {
+                *b = next;
+                next = next.wrapping_add(1);
+            }
+            Ok(())
+        }
+    }
+
+    /// A source that works `ok` times and then fails.
+    fn failing_after(ok: usize) -> impl FnMut(&mut [u8]) -> Result<(), Error> {
+        let mut calls = 0;
+        move |buf| {
+            calls += 1;
+            if calls > ok {
+                return Err(Error::RandomnessUnavailable);
+            }
+            buf.fill(0x42);
+            Ok(())
+        }
+    }
+
+    /// The drawn bytes ARE the seeds: `d` first, then `z`, as FIPS 203
+    /// Algorithm 19 draws them.
+    #[test]
+    fn key_gen_uses_the_drawn_bytes_as_d_then_z() {
+        let d: [u8; 32] = core::array::from_fn(|i| i as u8);
+        let z: [u8; 32] = core::array::from_fn(|i| 32 + i as u8);
+        for p in SETS {
+            assert_eq!(
+                key_gen_drawing_from(p, counting()).unwrap(),
+                internal::key_gen(p, &d, &z),
+                "{}",
+                p.name
+            );
+        }
+    }
+
+    #[test]
+    fn encaps_uses_the_drawn_bytes_as_m() {
+        let m: [u8; 32] = core::array::from_fn(|i| i as u8);
+        for p in SETS {
+            let (ek, _) = internal::key_gen(p, &[1; 32], &[2; 32]);
+            assert_eq!(
+                encaps_drawing_from(p, &ek, counting()),
+                internal::encaps(p, &ek, &m),
+                "{}",
+                p.name
+            );
+        }
+    }
+
+    /// FIPS 203 Algorithms 19 and 20: if random generation fails, return
+    /// an error. Not a key built from whatever the buffer held, and not a
+    /// panic. Failing on the SECOND draw is the case a `?` on only the
+    /// first one would miss.
+    #[test]
+    fn a_failing_source_is_an_error_not_a_key() {
+        for p in SETS {
+            for ok in [0, 1] {
+                assert_eq!(
+                    key_gen_drawing_from(p, failing_after(ok)),
+                    Err(Error::RandomnessUnavailable),
+                    "{}: key_gen, source fails after {ok} draws",
+                    p.name
+                );
+            }
+            let (ek, _) = internal::key_gen(p, &[1; 32], &[2; 32]);
+            assert_eq!(
+                encaps_drawing_from(p, &ek, failing_after(0)),
+                Err(Error::RandomnessUnavailable),
+                "{}: encaps",
+                p.name
+            );
+        }
+    }
 
     /// A difference anywhere must be seen, including in the LAST byte. The
     /// ACVP rejection cases do not say where their ciphertexts were

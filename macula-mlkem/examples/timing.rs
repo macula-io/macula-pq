@@ -1,5 +1,10 @@
 //! Timing measurement for ML-KEM, dudect-style.
 //!
+//! **ML-KEM-768 and ML-KEM-1024**, each with its own controls. 768 is the
+//! set negotiated on the wire (`secp256r1MLKEM768`), so it is the one that
+//! matters most once this crate replaces `aws-lc-rs`'s. 512 is not timed:
+//! nothing negotiates it.
+//!
 //! Run with `scripts/timing.sh` (release build; timing in a debug build
 //! measures a different binary from the one that ships).
 //!
@@ -26,8 +31,8 @@
 //! # Positive control
 //!
 //! Decapsulation followed by an early-exit `==` of the ciphertext against
-//! the fixed valid one: a full 1568-byte compare for one class, an exit
-//! at byte 0 for the other. That is the leak a non-constant-time
+//! the fixed valid one: a compare of the whole ciphertext for one class,
+//! an exit at byte 0 for the other. That is the leak a non-constant-time
 //! re-encryption check has, inside the noise of a whole decapsulation.
 //! A bare `==` timed on its own is flagged at any n and proves only that
 //! the statistics run; this one proves the instrument can see the leak
@@ -47,12 +52,10 @@
 use std::hint::black_box;
 use std::time::Instant;
 
-use macula_mlkem::{decaps, encaps, key_gen, ML_KEM_1024};
+use macula_mlkem::internal::{encaps, key_gen};
+use macula_mlkem::{decaps, ParameterSet, ML_KEM_1024, ML_KEM_768};
 
 const THRESHOLD: f64 = 4.5;
-
-/// ML-KEM-1024 ciphertext length.
-const CT: usize = 1568;
 
 /// xorshift64*: deterministic, reproducible input generation for the
 /// harness. Not used for anything cryptographic.
@@ -192,14 +195,33 @@ fn report(name: &str, pairs: &[(f64, f64)]) -> f64 {
     t
 }
 
-fn main() {
-    let n: usize = std::env::var("TIMING_N")
-        .ok()
-        .and_then(|s| s.parse().ok())
-        .unwrap_or(200_000);
-    let p = ML_KEM_1024;
-    let mut rng = Prng(0x9e37_79b9_7f4a_7c15);
-    println!("ML-KEM-1024 timing, {n} measurements per test, threshold |t| > {THRESHOLD}\n");
+/// What one parameter set's run found, worst first.
+#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+enum Outcome {
+    /// The control leak was not detected: nothing else can be read.
+    InstrumentBroken,
+    /// Identical data was flagged: a flag elsewhere may be the
+    /// preparation path, not a leak.
+    InstrumentBiased,
+    LeakDetected,
+    NoLeakDetected,
+}
+
+impl Outcome {
+    fn exit_code(self) -> i32 {
+        match self {
+            Outcome::InstrumentBroken => 2,
+            Outcome::InstrumentBiased => 3,
+            Outcome::LeakDetected => 1,
+            Outcome::NoLeakDetected => 0,
+        }
+    }
+}
+
+/// Every test for one parameter set. `CT` is its ciphertext length: the
+/// inputs are fixed-size arrays so they can be staged; see `measure`.
+fn time_set<const CT: usize>(p: ParameterSet, n: usize, rng: &mut Prng) -> Outcome {
+    println!("{}", p.name);
 
     // --- one fixed key throughout ---
     let d: [u8; 32] = rng.bytes();
@@ -211,7 +233,7 @@ fn main() {
     // --- positive control: a planted compare leak inside decapsulation ---
     let pairs = measure(
         n,
-        &mut rng,
+        rng,
         |class, rng| {
             if class {
                 fixed_c
@@ -230,7 +252,7 @@ fn main() {
 
     let pairs = measure(
         n,
-        &mut rng,
+        rng,
         |class, rng| {
             if class {
                 fixed_c
@@ -256,7 +278,7 @@ fn main() {
     // leak.
     let pairs = measure(
         n,
-        &mut rng,
+        rng,
         |class, _| {
             if class {
                 fixed_c
@@ -272,7 +294,7 @@ fn main() {
 
     let pairs = measure(
         n,
-        &mut rng,
+        rng,
         |class, rng| {
             if class {
                 fixed_c
@@ -288,7 +310,7 @@ fn main() {
 
     let pairs = measure(
         n,
-        &mut rng,
+        rng,
         |class, rng| if class { fixed_m } else { rng.bytes() },
         |m| {
             black_box(encaps(p, black_box(&ek), black_box(m)).unwrap());
@@ -296,18 +318,37 @@ fn main() {
     );
     let t3 = report("encaps: fixed vs random message", &pairs);
 
+    let outcome = if control <= THRESHOLD {
+        println!("  INSTRUMENT BROKEN: the control leak was not detected, so the other results mean nothing.");
+        Outcome::InstrumentBroken
+    } else if negative > THRESHOLD {
+        println!("  INSTRUMENT BIASED: identical data was flagged, so a flag elsewhere may be the preparation path, not a leak.");
+        Outcome::InstrumentBiased
+    } else if [t1, t2, t3].iter().any(|&t| t > THRESHOLD) {
+        println!("  LEAK DETECTED in at least one test.");
+        Outcome::LeakDetected
+    } else {
+        println!("  Control detected; no leak detected in any test at n = {n}.");
+        Outcome::NoLeakDetected
+    };
     println!();
-    if control <= THRESHOLD {
-        println!("INSTRUMENT BROKEN: the control leak was not detected, so the other results mean nothing.");
-        std::process::exit(2);
-    }
-    if negative > THRESHOLD {
-        println!("INSTRUMENT BIASED: identical data was flagged, so a flag elsewhere may be the preparation path, not a leak.");
-        std::process::exit(3);
-    }
-    if [t1, t2, t3].iter().any(|&t| t > THRESHOLD) {
-        println!("LEAK DETECTED in at least one test.");
-        std::process::exit(1);
-    }
-    println!("Control detected; no leak detected in any test at n = {n}.");
+    outcome
+}
+
+fn main() {
+    let n: usize = std::env::var("TIMING_N")
+        .ok()
+        .and_then(|s| s.parse().ok())
+        .unwrap_or(200_000);
+    let mut rng = Prng(0x9e37_79b9_7f4a_7c15);
+    println!("ML-KEM timing, {n} measurements per test, threshold |t| > {THRESHOLD}\n");
+
+    let worst = [
+        time_set::<1088>(ML_KEM_768, n, &mut rng),
+        time_set::<1568>(ML_KEM_1024, n, &mut rng),
+    ]
+    .into_iter()
+    .min()
+    .unwrap();
+    std::process::exit(worst.exit_code());
 }

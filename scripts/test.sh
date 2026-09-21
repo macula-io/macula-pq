@@ -32,6 +32,13 @@ echo
 echo "=== clippy ==="
 cargo clippy --workspace --all-targets -- -D warnings
 echo
+echo "=== libraries as a consumer builds them ==="
+# ⚠ `--all-targets` above compiles each library with its dev-dependencies'
+# features, and macula-mlkem's own tests switch on `internal`. Without
+# this step the gate never compiles the library a consumer actually gets,
+# the one where the seeded functions are private.
+cargo clippy --workspace --lib -- -D warnings
+echo
 echo "=== readme ==="
 ./scripts/check-readme.sh
 echo

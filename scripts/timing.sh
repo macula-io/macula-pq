@@ -8,9 +8,10 @@
 #
 #   TIMING_N   measurements per test (default 200000)
 #
-# Exit codes: 0 control detected and no leak detected; 1 a leak detected;
-# 2 the control was NOT detected, so the instrument is broken; 3 identical
-# data WAS flagged, so the instrument is biased.
+# Times ML-KEM-768 and ML-KEM-1024, each with its own controls. The exit
+# code is the worst of the two: 2 a control was NOT detected, so that
+# instrument is broken; 3 identical data WAS flagged, so it is biased; 1 a
+# leak detected; 0 both controls detected and no leak detected.
 set -euo pipefail
 cd "$(dirname "$0")/.."
 cargo run --release --quiet -p macula-mlkem --example timing

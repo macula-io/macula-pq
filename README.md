@@ -25,10 +25,10 @@
 > passes NIST's own ACVP vectors for SHA3-256/512 and SHAKE128/256,
 > including the Monte Carlo chains. **`macula-mlkem` passes every NIST
 > ACVP vector for ML-KEM-512, -768 and -1024**, implicit rejection and key
-> checks included, and has been timed: no leak detected (see [What is not
-> claimed](#what-is-not-claimed) for exactly what that means). It is **not
-> finished**: callers supply its seeds, since the API that draws them from
-> the OS is not written, and `macula-pq-kx` does not use it yet.
+> checks included, draws its seeds from the OS, and has been timed at
+> ML-KEM-768 and -1024: no leak detected (see [What is not
+> claimed](#what-is-not-claimed) for exactly what that means). It does not
+> yet wipe secrets after use, and `macula-pq-kx` does not use it yet.
 > **`macula-pq`, the facade, is a stub.** Every crate carries `publish =
 > false` and nothing has been released. See [Status](#status) for what is
 > done and what is not.
@@ -67,7 +67,7 @@ ML-KEM, since TLS uses SHA-2.
 |---|---|---|
 | **`macula-pq`** | **The facade. This is what you depend on.** | **stub** |
 | `macula-keccak` | Keccak-f[1600], SHA3-256/512, SHAKE128/256 | complete, NIST ACVP vectors passing |
-| `macula-mlkem` | ML-KEM (FIPS 203) | **unfinished**: NIST ACVP vectors passing; seeds come from the caller, no OS-randomness API yet |
+| `macula-mlkem` | ML-KEM (FIPS 203) | NIST ACVP vectors passing, seeds from the OS, timed; **secrets not yet wiped after use** |
 | `macula-pq-kx` | Hybrid TLS key exchange groups, including `SecP384r1MLKEM1024` | complete |
 
 ⛔ **It is four crates rather than one with modules because the layering is
@@ -166,9 +166,15 @@ Those are follow-ups in those repositories and neither is done.
 ./scripts/test.sh
 ```
 
-Five gates: `cargo test`, `cargo test --release`, `cargo clippy -D
-warnings`, `scripts/check-readme.sh`, `cargo fmt --check`. CI runs this
-same script rather than restating the gates, so the two cannot drift.
+Six gates: `cargo test`, `cargo test --release`, `cargo clippy -D
+warnings` twice, `scripts/check-readme.sh`, `cargo fmt --check`. CI runs
+this same script rather than restating the gates, so the two cannot
+drift.
+
+**Clippy runs twice because tests and consumers build different
+libraries.** `macula-mlkem`'s own tests switch on its `internal` feature,
+and a build that includes them compiles the library with it. The second
+run builds the libraries alone, which is what a consumer gets.
 
 **Both build profiles are required and neither is redundant.** Debug panics
 on arithmetic overflow, which is how a real i32 overflow in this
@@ -197,9 +203,9 @@ uses silently is worse than a documented one used twice.
 ```
 
 **Not part of the gate**: it takes minutes, and a shared CI runner is too
-noisy to time on. It times ML-KEM-1024 decapsulation and encapsulation in
-a release build, dudect-style, and checks itself before its results mean
-anything:
+noisy to time on. It times decapsulation and encapsulation at ML-KEM-768
+and ML-KEM-1024 in a release build, dudect-style, and each run checks
+itself before its results mean anything:
 
 - **Positive control**: a real decapsulation with an early-exit `==`
   planted after it. Not flagged, and the run exits 2.
@@ -245,17 +251,21 @@ the same draft, and its documentation says so rather than implying more.
 - `macula-pq-kx`: `SecP384r1MLKEM1024`, verified differentially against
   rustls's `SECP256R1MLKEM768`.
 - `macula-mlkem`: key generation, encapsulation, decapsulation with
-  implicit rejection, and both key checks, at ML-KEM-512, -768 and -1024,
-  from caller-supplied seeds. Every ACVP vector passes byte-exact.
-- The timing harness, with a positive and a negative control. ML-KEM-1024
-  measured: no leak detected.
-- The gate: five checks, two build profiles, one script, run by the
+  implicit rejection, and both key checks, at ML-KEM-512, -768 and -1024.
+  Every ACVP vector passes byte-exact. Key generation and encapsulation
+  draw their seeds from the OS and return an error if it cannot supply
+  them; the seeded forms are behind the testing-only `internal` feature,
+  as FIPS 203 sections 3.3 and 6 require.
+- The timing harness, with a positive and a negative control.
+  ML-KEM-768 and -1024 measured: no leak detected.
+- The gate: six checks, two build profiles, one script, run by the
   pre-commit hook and by CI.
 
 **Not done**
 
-- `macula-mlkem`: key generation and encapsulation that draw their seeds
-  from the OS CSPRNG. Today the caller supplies `d`, `z` and `m`.
+- `macula-mlkem`: secrets are not wiped after use. Seeds, decapsulation
+  keys, shared secrets and the intermediate polynomials stay in memory
+  until it is reused.
 - `macula-pq-kx` onto `macula-mlkem`. Its ML-KEM-1024 comes from
   `aws-lc-rs`, through rustls.
 - `macula-pq`: `provider()` is a `todo!()`.
@@ -268,13 +278,12 @@ the same draft, and its documentation says so rather than implying more.
 
 `macula-mlkem` has been **measured**, which is a different thing. On one
 AMD Ryzen 9 5950X, rustc 1.98.1, release build, 200,000 measurements per
-test, the harness detected no timing difference in ML-KEM-1024
-decapsulation (valid against invalid ciphertexts; one fixed ciphertext
-against random valid ones) or encapsulation (fixed against random
-messages), with both controls behaving. **That is "no leak detected at
-that n, on that machine, with that compiler"**, not a proof. It covers
-ML-KEM-1024 only: ML-KEM-512 and -768 run the same code with different
-parameters and have not been timed.
+test, the harness detected no timing difference at ML-KEM-768 or
+ML-KEM-1024 in decapsulation (valid against invalid ciphertexts; one fixed
+ciphertext against random valid ones) or encapsulation (fixed against
+random messages), with both controls behaving at both. **That is "no leak
+detected at that n, on that machine, with that compiler"**, not a proof.
+ML-KEM-512 has not been timed: nothing negotiates it.
 
 `macula-keccak` is measured only inside ML-KEM, where it hashes secret
 data. On its own it rests on an argument from the algorithm's shape: there
