@@ -38,7 +38,7 @@ fn hex_of(b: &[u8]) -> String {
     b.iter().map(|x| format!("{x:02x}")).collect()
 }
 
-fn mct_group<'a>(v: &'a Value, want_expected: bool) -> &'a Value {
+fn mct_group(v: &Value, want_expected: bool) -> &Value {
     v["testGroups"]
         .as_array()
         .unwrap()
