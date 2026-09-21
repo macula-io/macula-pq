@@ -13,21 +13,49 @@ and swappable underneath the protocol code without rewriting it.
 | `macula-pq-kx` | Hybrid TLS key exchange groups, including `SecP384r1MLKEM1024` | implemented |
 | `macula-pq` | The facade: `provider()` | stubbed |
 
-## Why these boundaries
+## The boundary, precisely
 
-**rustls and quinn are the envelope.** They are TLS and QUIC protocol
-engineering: record layers, handshake state machines, key schedules. There
-is no reason to own that, and owning it would add risk without serving the
-thesis.
+| | |
+|---|---|
+| **Ours** | Keccak (**inside ML-KEM only**), ML-KEM, the hybrid composition |
+| **The platform** | The OS CSPRNG |
+| **`aws-lc-rs`** | AES-GCM, ChaCha20-Poly1305, SHA-2, HKDF, P-384, X25519, ECDSA/RSA/Ed25519 verification |
 
-**The post-quantum maths is what we own.** Everything a quantum adversary
-threatens, and nothing else. Writing our own AES-GCM would buy nothing and
-cost real safety.
+**The rule is that `aws-lc-rs` supplies no post-quantum primitive.**
+Everything left to it is either quantum-safe already or paired with ML-KEM
+in a hybrid. None of it is post-quantum, so none of it is ours to write.
+
+⚠ **Keccak does not appear in the `CryptoProvider` at all.** TLS 1.3's key
+schedule uses SHA-256 and SHA-384, not SHA-3, so `macula-keccak` is used
+**only inside ML-KEM**. "We own the hashing" is false at the TLS layer and
+true inside the post-quantum primitive, and the two are worth keeping
+apart.
+
+**rustls and quinn are the envelope**: TLS and QUIC protocol engineering,
+record layers, handshake state machines, key schedules. There is no reason
+to own that, and owning it would add risk without serving the thesis.
+Writing our own AES-GCM would buy nothing and cost real safety.
 
 Each crate is generic over the layer beneath it, so replacing a component
 is a component change rather than a rewrite. `macula-pq-kx` reaches its
 ML-KEM through a trait object precisely so `macula-mlkem` can take that
 slot when it is ready.
+
+### ⛔ Randomness comes from the operating system, deliberately
+
+ML-KEM key generation and encapsulation take their randomness from the **OS
+CSPRNG**, trusted as part of the platform in the same way OTP's `crypto` is.
+It is not `aws-lc-rs`, and it is **emphatically not ours**.
+
+This is a boundary, not an omission. **A hand-written CSPRNG is the one
+piece of this where rolling your own would be unambiguously wrong.** Every
+other crate here is verifiable against published vectors; randomness has
+none, because you cannot test that output is unpredictable. It is the one
+place where a bug would be undetectable by the method everything else
+depends on.
+
+The kernel is also not an external supplier in the sense this workspace is
+removing: it is not a library dependency at all.
 
 ## `SecP384r1MLKEM1024`, and why it had to be written
 

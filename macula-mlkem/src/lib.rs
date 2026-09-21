@@ -31,3 +31,21 @@
 //! a harness MEASURES the property and the docs state what was measured
 //! rather than what the code avoids. If the harness finds a leak, that is
 //! the tool working and the finding gets reported.
+//!
+//! # Randomness, and why the core API is derandomised
+//!
+//! Key generation and encapsulation take randomness from the **OS
+//! CSPRNG**, trusted as part of the platform. Not `aws-lc-rs`, and not
+//! ours: a hand-written CSPRNG is the one piece of this workspace where
+//! rolling your own would be unambiguously wrong, because randomness has
+//! no test vectors. You cannot test that output is unpredictable, so it is
+//! the one place a bug would be invisible to the method everything else
+//! here relies on.
+//!
+//! The consequence for the API: the core operations are **derandomised**,
+//! taking their seeds as arguments, with thin wrappers that fill those
+//! seeds from the OS. That is not a stylistic choice. **The ACVP vectors
+//! supply `d`, `z` and `m` directly**, so a derandomised core is what
+//! makes the implementation testable against them at all; an API that
+//! only ever drew its own randomness could not be checked byte-exactly
+//! against anything.
