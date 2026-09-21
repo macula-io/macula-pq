@@ -14,7 +14,7 @@
 </p>
 
 <p align="center">
-  <strong>Post-quantum cryptography macula owns, rather than depends on</strong>
+  <strong>Post-quantum cryptography library for Rust, with hybrid TLS key exchange no rustls provider ships</strong>
 </p>
 
 ---
@@ -32,9 +32,21 @@
 
 ## What is this?
 
-A Rust workspace implementing the post-quantum parts of
-[Macula](https://github.com/macula-io/macula) directly, so they are not
-supplied by an external library.
+A Rust implementation of ML-KEM (FIPS 203), the Keccak primitives it is
+built on, and the hybrid TLS key exchange groups that combine it with
+elliptic-curve Diffie-Hellman for rustls.
+
+It supplies **`SecP384r1MLKEM1024`**, which **no rustls provider ships**:
+not `ring`, not `aws-lc-rs`, not rustls itself. Everything is verified
+byte-exact against the standards bodies' own test vectors, vendored with
+provenance and checksums.
+
+**Why it exists.** Macula's `pq_hybrid` profile declares
+`SecP384r1MLKEM1024`, and until this workspace no implementation of that
+group existed to make the declaration true. Building the primitives here
+rather than depending on them also means the post-quantum parts of
+[Macula](https://github.com/macula-io/macula) are not supplied by an
+external library, which is the reason for the boundary described below.
 
 **Depend on `macula-pq`.** The other three are implementation crates. They
 are published only because cargo refuses to publish a crate whose path
