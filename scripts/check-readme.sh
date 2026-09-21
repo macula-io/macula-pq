@@ -27,7 +27,11 @@ needre "H1"                    '^# macula-pq$'
 needre "CI badge on main"      '^\[!\[CI\].*branch=main'
 needre "License badge"         '^\[!\[License\]'
 needre "Rust badge"            '^\[!\[Rust\]'
-needre "unsafe-forbidden badge" '^\[!\[unsafe forbidden\]'
+# ⚠ Anchored on the safety-dance LINK, not on the badge's label text.
+# The label is presentation and has already changed once; the link is the
+# stable identity of the claim. Asserting the label would have made a
+# wording fix look like a missing badge.
+needre "memory-safety badge" 'rust-secure-code/safety-dance'
 needre "GitHub Sponsors badge" '^\[!\[GitHub Sponsors\].*sponsors/rgfaber'
 need    "logo <picture> block" '<picture>'
 need    "dark logo source"     'assets/macula-pq-full-dark.svg'
@@ -58,10 +62,14 @@ for b in bad:
 sys.exit(1 if bad else 0)
 PYEOF
 
-# --- content: badge claims must be true of the tree ---
+# --- content: the badge's CLAIM must be true of the tree ---
+#
+# This is the half that matters. The badge asserts that this workspace is
+# 100% safe Rust; the assertion is checked against every crate, not
+# against the words on the badge.
 for c in macula-keccak macula-mlkem macula-pq-kx macula-pq; do
   grep -q 'forbid(unsafe_code)' "$c/src/lib.rs" || {
-    echo "README: 'unsafe forbidden' badge is false, $c does not forbid it"; fail=1; }
+    echo "README: the memory-safety badge is FALSE, $c does not forbid unsafe"; fail=1; }
 done
 
 [ "$fail" = 0 ] && echo "README: shape and content verified"
