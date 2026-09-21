@@ -1,0 +1,23 @@
+# The `macula-pq` workspace.
+#
+# ⚠ THIS DIRECTORY IS DESTINED FOR ITS OWN REPOSITORY, `macula-io/macula-pq`.
+# It is laid out here so the move is a `git mv` and nothing is rewritten.
+# It is pure mathematics and protocol-independent policy: no Erlang, no
+# QUIC, no mesh. It does not belong under an Erlang application's
+# `native/`, and we have seen what a library-inside-an-application costs:
+# macula-station needs eight `git_subdir` dependencies to consume one.
+[workspace]
+resolver = "2"
+members = [
+    "macula-keccak",  # Keccak-f[1600]: SHA3 and SHAKE, what ML-KEM is built on
+    "macula-mlkem",   # the maths
+    "macula-pq-kx",   # the hybrid key exchange groups, including ours
+    "macula-pq",      # the facade: the one place the PQ posture is decided
+]
+
+# Pinned with `=`. Every length and code point these crates are built on
+# was MEASURED against these exact versions, and a silent minor bump would
+# move the ground the measurements stand on.
+[workspace.dependencies]
+rustls = { version = "=0.23.43", default-features = false, features = ["aws-lc-rs", "std"] }
+aws-lc-rs = "=1.18.1"

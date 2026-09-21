@@ -1,0 +1,2 @@
+# Build output. The workspace keeps ONE lockfile, at its root.
+target/

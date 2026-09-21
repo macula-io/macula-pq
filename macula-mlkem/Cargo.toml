@@ -1,0 +1,10 @@
+[package]
+name = "macula-mlkem"
+version = "0.1.0"
+edition = "2021"
+license = "Apache-2.0"
+description = "ML-KEM (FIPS 203), implemented here rather than depended on"
+publish = false
+
+[dependencies]
+macula-keccak = { path = "../macula-keccak" }

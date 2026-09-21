@@ -1,0 +1,11 @@
+[package]
+name = "macula-pq"
+version = "0.1.0"
+edition = "2021"
+license = "Apache-2.0"
+description = "The facade: the one place macula's post-quantum posture is decided"
+publish = false
+
+[dependencies]
+rustls = { workspace = true }
+macula-pq-kx = { path = "../macula-pq-kx" }
