@@ -32,5 +32,8 @@ echo
 echo "=== clippy ==="
 cargo clippy --workspace --all-targets -- -D warnings
 echo
+echo "=== readme ==="
+./scripts/check-readme.sh
+echo
 echo "=== fmt ==="
 cargo fmt --all --check
