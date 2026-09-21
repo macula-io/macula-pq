@@ -13,7 +13,8 @@
 //! ⚠ `SecP384r1MLKEM1024` HAS NO INDEPENDENT RUST IMPLEMENTATION TO DIFFER
 //! AGAINST. Its tests here assert structure and self-consistency. Its
 //! ML-KEM-1024 half is exchanged against `aws-lc-rs`'s in the crate's unit
-//! tests; its composition is the one verified at 768.
+//! tests. Its composition is checked against OTP's `ssl` by
+//! `scripts/otp-interop.sh`, outside the gate, since CI has no OTP.
 
 use macula_pq_kx::{SECP256R1MLKEM768 as MINE, SECP384R1MLKEM1024};
 use rustls::crypto::aws_lc_rs::kx_group::SECP256R1MLKEM768 as THEIRS;

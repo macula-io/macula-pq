@@ -50,11 +50,15 @@
 //! - **`SecP384r1MLKEM1024`** is exchanged in both directions against the
 //!   same composition on `aws-lc-rs`'s ML-KEM-1024. That checks our
 //!   ML-KEM-1024 inside the full hybrid. It cannot check the composition,
-//!   because both sides use this crate's. **No independent Rust
-//!   implementation of this group exists to exchange with.** Its
-//!   composition is the one verified at 768, differing in components and
-//!   three lengths. OTP's `ssl` implements the group, and nothing here has
-//!   been exchanged against it.
+//!   because both sides use this crate's.
+//! - **Both hybrids against OTP's `ssl`**, which implements them
+//!   independently: `scripts/otp-interop.sh`, a real TLS 1.3 handshake in
+//!   both roles through `macula-pq`'s `provider()`, OTP offering one group
+//!   at a time. This is the only independent check of the
+//!   `SecP384r1MLKEM1024` composition, since no Rust implementation of it
+//!   exists to exchange with. It runs OUTSIDE the gate, because it needs
+//!   OTP 28.4 or later: it agreed in both roles on OTP 28.4.2, and fails
+//!   when this crate's share order for the group is reversed.
 //! - **Which ML-KEM each hybrid holds is asserted by identity**
 //!   (`both_hybrids_carry_our_ml_kem`): ours and `aws-lc-rs`'s have the
 //!   same names and lengths and agree on every exchange, so no behaviour

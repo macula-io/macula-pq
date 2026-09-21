@@ -228,6 +228,31 @@ invalid test flags it; with the real code it does not.
 [`examples/timing.rs`](macula-mlkem/examples/timing.rs) documents the
 method and the confounds the negative control exposed.
 
+### Interop with OTP
+
+```sh
+OTP_BIN=/path/to/otp/bin ./scripts/otp-interop.sh
+```
+
+OTP's own `ssl` implements `SecP384r1MLKEM1024` and `SecP256r1MLKEM768`
+independently: its hybrid composition is Erlang, its ML-KEM and ECDH come
+from its `crypto` library. No Rust implementation of `SecP384r1MLKEM1024`
+exists to exchange with, so **this is the only independent check of that
+composition**.
+
+It runs real TLS 1.3 handshakes over TCP between `provider()` and OTP, in
+both roles, with OTP offering one group at a time and a `ping`/`pong`
+crossing each connection. A classical-only OTP peer must be refused in
+both roles: the negative control. **Not part of the gate**, because it
+needs OTP 28.4 or later and CI has none.
+[`examples/otp_interop.rs`](macula-pq/examples/otp_interop.rs) documents
+it; exit codes are in [`scripts/otp-interop.sh`](scripts/otp-interop.sh).
+
+Result on OTP 28.4.2, whose `crypto` is OpenSSL 3.6.4: both hybrids agree
+in both roles, and the classical-only peer is refused in both. With
+`SecP384r1MLKEM1024`'s share order reversed in `macula-pq-kx`, both of
+its cases fail and the 768 cases still pass.
+
 ### How these crates are verified
 
 **Against the standards bodies' own vectors, byte-exact, vendored with
@@ -263,7 +288,9 @@ the same draft, and its documentation says so rather than implying more.
 That exchange runs `SecP256r1MLKEM768` on our ML-KEM against rustls's on
 `aws-lc-rs`'s, so it checks our ML-KEM-768 on the wire as well as the
 composition. It passed before the ML-KEM half was moved onto
-`macula-mlkem` and after.
+`macula-mlkem` and after. `SecP384r1MLKEM1024`'s composition has no Rust
+counterpart; it is checked against OTP's `ssl`, outside the gate (see
+[Interop with OTP](#interop-with-otp)).
 
 ## Status
 
@@ -289,6 +316,8 @@ composition. It passed before the ML-KEM half was moved onto
   `SecP384r1MLKEM1024`; a peer on `macula_quic`'s current list agrees on
   `SecP256r1MLKEM768`, our ML-KEM against `aws-lc-rs`'s, in both roles;
   and a classical-only peer cannot agree with it in either role.
+- Interop with OTP 28.4.2's `ssl`, outside the gate: both hybrids agree in
+  both roles; a classical-only peer is refused in both.
 - The gate: six checks, two build profiles, one script, run by the
   pre-commit hook and by CI.
 
