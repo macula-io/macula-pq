@@ -9,3 +9,8 @@ publish = false
 [dependencies]
 rustls = { workspace = true }
 macula-pq-kx = { path = "../macula-pq-kx" }
+
+[dev-dependencies]
+# A CA and a server certificate for real TLS handshakes in the tests. The
+# aws-lc-rs backend, because it is already linked; ring would be a second.
+rcgen = { version = "0.14", default-features = false, features = ["aws_lc_rs"] }

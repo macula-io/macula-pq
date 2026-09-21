@@ -30,7 +30,9 @@
 > claimed](#what-is-not-claimed) for exactly what that means). It wipes
 > its secrets when they are dropped, measured on the heap, and both of
 > `macula-pq-kx`'s hybrids run on it.
-> **`macula-pq`, the facade, is a stub.** Every crate carries `publish =
+> **`macula-pq`'s `provider()` offers `SecP384r1MLKEM1024` then
+> `SecP256r1MLKEM768`, both on our ML-KEM, and nothing classical**; nothing
+> calls it yet. Every crate carries `publish =
 > false` and nothing has been released. See [Status](#status) for what is
 > done and what is not.
 
@@ -69,7 +71,7 @@ ML-KEM, since TLS uses SHA-2.
 
 | Crate | What it is | State |
 |---|---|---|
-| **`macula-pq`** | **The facade. This is what you depend on.** | **stub** |
+| **`macula-pq`** | **The facade. This is what you depend on.** | `provider()`: our two hybrids, nothing classical; no consumer calls it yet |
 | `macula-keccak` | Keccak-f[1600], SHA3-256/512, SHAKE128/256 | complete, NIST ACVP vectors passing |
 | `macula-mlkem` | ML-KEM (FIPS 203) | complete: NIST ACVP vectors passing, seeds from the OS, secrets wiped, timed |
 | `macula-pq-kx` | Hybrid TLS key exchange groups, including `SecP384r1MLKEM1024` | complete |
@@ -156,11 +158,12 @@ to the method everything else depends on.
 on `macula-pq` and nothing else for crypto: no provider selection, no
 `ring` or `aws-lc-rs` feature flags in its manifest.
 
-1. **The `kx_groups` list exists in exactly one place.** No second copy can
-   regain a classical group while the negative control guarding it lives in
-   a different crate and never fires.
-2. **Replacing `aws-lc-rs` is one line inside the facade** and no consumer
-   changes.
+1. **The `kx_groups` list exists in exactly one place, with its negative
+   control beside it.** A second copy could regain a classical group while
+   the control guarding the first one kept passing.
+2. **Replacing `aws-lc-rs` changes this workspace and no consumer**: the
+   facade's default-provider line and the two ECDH halves in
+   `macula-pq-kx`.
 
 ⚠ **THE DIAGRAM ABOVE IS THE INTENDED SHAPE, NOT THE CURRENT STATE.**
 Neither `macula_quic` nor `macula-rust` has been migrated. Both still
@@ -280,12 +283,17 @@ composition. It passed before the ML-KEM half was moved onto
   and none survives on the heap.
 - The timing harness, with a positive and a negative control.
   ML-KEM-768 and -1024 measured: no leak detected.
+- `macula-pq`: `provider()` offers `SecP384r1MLKEM1024` then
+  `SecP256r1MLKEM768`, from `macula-pq-kx`, and nothing classical. Tested
+  with real TLS 1.3 handshakes: two peers on it agree on
+  `SecP384r1MLKEM1024`; a peer on `macula_quic`'s current list agrees on
+  `SecP256r1MLKEM768`, our ML-KEM against `aws-lc-rs`'s, in both roles;
+  and a classical-only peer cannot agree with it in either role.
 - The gate: six checks, two build profiles, one script, run by the
   pre-commit hook and by CI.
 
 **Not done**
 
-- `macula-pq`: `provider()` is a `todo!()`.
 - Migrating `macula_quic` and `macula-rust` onto the facade.
 - Nothing is published; every crate carries `publish = false`.
 
