@@ -320,7 +320,6 @@ fn encaps_matches_acvp() {
 /// implementation that returns an error instead passes every happy-path
 /// vector and fails exactly these.
 #[test]
-#[ignore = "ML-KEM is not implemented yet; remove when decaps lands"]
 fn decaps_matches_acvp_including_implicit_rejection() {
     let exp = expected(ENCAP_DECAP);
     let reasons = reasons(ENCAP_DECAP);
@@ -364,7 +363,6 @@ fn decaps_matches_acvp_including_implicit_rejection() {
 }
 
 #[test]
-#[ignore = "ML-KEM is not implemented yet; remove when the key checks land"]
 fn key_checks_match_acvp() {
     let exp = expected(ENCAP_DECAP);
     let p = vectors(ENCAP_DECAP, "prompt.json");

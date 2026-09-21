@@ -4,7 +4,7 @@
 
 use crate::encode::{byte_decode, byte_encode, compress_poly, decompress_poly};
 use crate::hash::g;
-use crate::poly::{intt, multiply_ntts, ntt, poly_add, Poly, N};
+use crate::poly::{intt, multiply_ntts, ntt, poly_add, poly_sub, Poly, N};
 use crate::sample::{prf, sample_ntt, sample_poly_cbd};
 use crate::ParameterSet;
 
@@ -122,4 +122,33 @@ pub fn encrypt(p: ParameterSet, ek: &[u8], m: &[u8; 32], r: &[u8; 32]) -> Vec<u8
         .collect();
     c.extend(byte_encode(p.dv, &compress_poly(p.dv, &v)));
     c
+}
+
+/// FIPS 203 Algorithm 15, K-PKE.Decrypt. Recovers the 32-byte message.
+///
+/// Runs on the secret key. Every step is arithmetic over fixed-size
+/// buffers; the only data-dependent choices are lengths, which the
+/// parameter set fixes.
+pub fn decrypt(p: ParameterSet, dk_pke: &[u8], c: &[u8]) -> [u8; 32] {
+    let (c1, c2) = c.split_at(32 * p.du * p.k);
+    let mut u: Vec<Poly> = c1
+        .chunks_exact(32 * p.du)
+        .map(|chunk| decompress_poly(p.du, &byte_decode(p.du, chunk)))
+        .collect();
+    let v = decompress_poly(p.dv, &byte_decode(p.dv, c2));
+    let s: Vec<Poly> = dk_pke
+        .as_chunks::<384>()
+        .0
+        .iter()
+        .map(|chunk| byte_decode(12, chunk))
+        .collect();
+
+    u.iter_mut().for_each(ntt);
+    let mut su = inner_product(&s, &u);
+    intt(&mut su);
+    let w = poly_sub(&v, &su);
+
+    let mut m = [0u8; 32];
+    m.copy_from_slice(&byte_encode(1, &compress_poly(1, &w)));
+    m
 }

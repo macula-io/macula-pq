@@ -156,8 +156,78 @@ fn encaps_key_len(p: ParameterSet) -> usize {
 /// does not re-encrypt, NOT an error. That is the implicit rejection path,
 /// and an implementation that returns an error instead passes every
 /// happy-path vector while failing half the decapsulation ones.
-pub fn decaps(_p: ParameterSet, _dk: &[u8], _c: &[u8]) -> Result<[u8; 32], Error> {
-    todo!("ML-KEM decapsulation")
+pub fn decaps(p: ParameterSet, dk: &[u8], c: &[u8]) -> Result<[u8; 32], Error> {
+    // FIPS 203 section 7.3 input checks. These inspect lengths and the
+    // public half of dk, so early exits here leak nothing secret.
+    if c.len() != ciphertext_len(p) || dk.len() != decaps_key_len(p) {
+        return Err(Error::WrongLength);
+    }
+    if !decaps_key_valid(p, dk) {
+        return Err(Error::DecapsKeyInvalid);
+    }
+
+    let k = p.k;
+    let dk_pke = &dk[..384 * k];
+    let ek_pke = &dk[384 * k..768 * k + 32];
+    let h = &dk[768 * k + 32..768 * k + 64];
+    let z = &dk[768 * k + 64..768 * k + 96];
+
+    let m_prime = kpke::decrypt(p, dk_pke, c);
+    let mut seed = [0u8; 64];
+    seed[..32].copy_from_slice(&m_prime);
+    seed[32..].copy_from_slice(h);
+    let (k_prime, r_prime) = hash::g(&seed);
+
+    let mut rejection_input = Vec::with_capacity(32 + c.len());
+    rejection_input.extend_from_slice(z);
+    rejection_input.extend_from_slice(c);
+    let k_bar = hash::j(&rejection_input);
+
+    // ⛔ Re-encrypt and compare IN CONSTANT TIME. A `==` on these slices
+    // exits at the first differing byte, and how far it got tells an
+    // attacker how much of a forged ciphertext decrypted consistently.
+    // Then select, also without a branch: implicit rejection returns the
+    // pseudorandom k_bar for a bad ciphertext, never an error.
+    let c_prime = kpke::encrypt(p, ek_pke, &m_prime, &r_prime);
+    Ok(ct_select(ct_eq(c, &c_prime), &k_prime, &k_bar))
+}
+
+/// `32 * (du * k + dv)` bytes.
+fn ciphertext_len(p: ParameterSet) -> usize {
+    32 * (p.du * p.k + p.dv)
+}
+
+/// `768k + 96` bytes: dk_pke, ek, H(ek), z.
+fn decaps_key_len(p: ParameterSet) -> usize {
+    768 * p.k + 96
+}
+
+/// `0xFF` if `a == b`, `0x00` otherwise, examining every byte.
+///
+/// The fold never exits early and the final mapping is arithmetic.
+/// `black_box` asks the optimiser not to turn either back into a branch;
+/// it is a best effort, not a guarantee, and whether it holds is what the
+/// timing harness exists to measure.
+fn ct_eq(a: &[u8], b: &[u8]) -> u8 {
+    debug_assert_eq!(a.len(), b.len());
+    let diff = a
+        .iter()
+        .zip(b.iter())
+        .fold(0u8, |acc, (x, y)| acc | (x ^ y));
+    let diff = core::hint::black_box(diff) as u16;
+    // diff == 0 -> 0xFFFF >> 8 = 0xFF; diff in 1..=255 -> 0.
+    (diff.wrapping_sub(1) >> 8) as u8
+}
+
+/// `a` where `mask` is `0xFF`, `b` where it is `0x00`, bytewise, with no
+/// branch on the mask.
+fn ct_select(mask: u8, a: &[u8; 32], b: &[u8; 32]) -> [u8; 32] {
+    let mask = core::hint::black_box(mask);
+    let mut out = [0u8; 32];
+    for ((o, x), y) in out.iter_mut().zip(a.iter()).zip(b.iter()) {
+        *o = (x & mask) | (y & !mask);
+    }
+    out
 }
 
 /// FIPS 203 section 7.2: the encapsulation key check.
@@ -174,6 +244,47 @@ pub fn encaps_key_valid(p: ParameterSet, ek: &[u8]) -> bool {
 }
 
 /// FIPS 203 section 7.3: the decapsulation key check.
-pub fn decaps_key_valid(_p: ParameterSet, _dk: &[u8]) -> bool {
-    todo!("decapsulation key check")
+///
+/// The length is right, and the stored `H(ek)` matches the `ek` stored
+/// beside it. Both are public, so an early exit is fine.
+pub fn decaps_key_valid(p: ParameterSet, dk: &[u8]) -> bool {
+    let k = p.k;
+    dk.len() == decaps_key_len(p)
+        && hash::h(&dk[384 * k..768 * k + 32]) == dk[768 * k + 32..768 * k + 64]
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{ct_eq, ct_select};
+
+    /// A difference anywhere must be seen, including in the LAST byte. The
+    /// ACVP rejection cases do not say where their ciphertexts were
+    /// modified, so a comparison that stopped partway could pass them all.
+    #[test]
+    fn ct_eq_sees_a_difference_in_any_position() {
+        let a = [7u8; 1568];
+        assert_eq!(ct_eq(&a, &a), 0xff);
+        for pos in [0usize, 1, 783, 1566, 1567] {
+            let mut b = a;
+            b[pos] ^= 0x01;
+            assert_eq!(ct_eq(&a, &b), 0x00, "difference at byte {pos} not seen");
+        }
+    }
+
+    /// Every one of the 255 non-zero single-byte differences maps to 0x00.
+    /// `(diff - 1) >> 8` is the part that could be off by one.
+    #[test]
+    fn ct_eq_maps_every_nonzero_difference_to_false() {
+        for bit in 1u8..=255 {
+            assert_eq!(ct_eq(&[0u8], &[bit]), 0x00, "difference {bit:#04x}");
+        }
+    }
+
+    #[test]
+    fn ct_select_takes_a_on_ff_and_b_on_00() {
+        let a = [0xaau8; 32];
+        let b = [0x55u8; 32];
+        assert_eq!(ct_select(0xff, &a, &b), a);
+        assert_eq!(ct_select(0x00, &a, &b), b);
+    }
 }
