@@ -127,6 +127,7 @@ name = "macula-mlkem"
 version = "0.1.0"
 dependencies = [
  "macula-keccak",
+ "serde_json",
 ]
 
 [[package]]
