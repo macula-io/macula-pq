@@ -1,0 +1,33 @@
+#!/usr/bin/env bash
+# Refuse a commit that does not pass scripts/test.sh.
+#
+# ⛔ WHY THIS EXISTS, because it is slow and someone will want to remove it.
+#
+# In one session, four commits in this workspace asserted a property that
+# was false at the moment they were made: two claimed "clippy clean" with
+# warnings outstanding, one claimed a commit message that the shell had
+# silently eaten, and one claimed "all gates pass" while scripts/test.sh
+# exited nonzero. Every one had the same mechanism: the check and the
+# commit happened in the same breath, so the check's result arrived too
+# late to change anything.
+#
+# THE FOURTH HAPPENED WHILE COMMITTING THE SCRIPT WRITTEN TO PREVENT IT.
+# A mechanism that defeats the person who has just built the countermeasure
+# is structural, not a lapse of attention that more attention fixes.
+#
+# So the ordering is enforced by git rather than remembered: a nonzero exit
+# refuses the commit. The check now precedes the action because it must.
+#
+# ⚠ DO NOT MAKE THIS SKIPPABLE FOR CONVENIENCE. No blanket --no-verify
+# habit, no "WIP commits are exempt". For a crypto crate a slow commit is
+# the correct cost, and the exemption is precisely where the fifth instance
+# would live. If it becomes too slow to bear, MAKE THE SCRIPT FASTER.
+#
+# ⚠ The honest escape hatch, because one will genuinely be needed: commit
+# with `--no-verify` AND say so in the commit message, with the reason. An
+# undocumented bypass that everyone uses silently is worse than a
+# documented one used twice.
+set -euo pipefail
+cd "$(git rev-parse --show-toplevel)"
+echo "pre-commit: scripts/test.sh (debug, release, clippy, fmt)"
+exec ./scripts/test.sh

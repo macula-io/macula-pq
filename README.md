@@ -115,6 +115,28 @@ to it: shipping our own ML-KEM with an unverified timing claim would be
 worse than the dependency it replaces, because that one has had the
 analysis and ours would merely look finished.
 
+## Contributing: the pre-commit gate
+
+`scripts/test.sh` runs four gates: `cargo test`, `cargo test --release`,
+`cargo clippy -D warnings`, and `cargo fmt --check`. A committed
+`.githooks/pre-commit` runs it and **refuses any commit that fails**.
+
+Enable it after cloning:
+
+```sh
+git config core.hooksPath .githooks
+```
+
+**Both build profiles are required and neither is redundant.** Debug panics
+on arithmetic overflow, which is how a real i32 overflow in this crate's
+Barrett reduction was caught; in release it would have wrapped silently.
+Release is the binary that ships and the only place the optimiser's output
+exists, so **a constant-time claim tested only in debug is untested**.
+
+⚠ If a commit genuinely must bypass the hook, use `--no-verify` **and say
+so in the commit message with the reason**. An undocumented bypass that
+everyone uses silently is worse than a documented one used twice.
+
 ## Licence
 
 Apache-2.0. See [LICENSE](LICENSE).
