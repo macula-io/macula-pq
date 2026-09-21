@@ -54,6 +54,7 @@
 
 pub mod encode;
 pub mod poly;
+pub mod sample;
 
 /// A FIPS 203 parameter set.
 ///
