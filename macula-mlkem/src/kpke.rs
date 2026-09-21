@@ -2,9 +2,9 @@
 //! ML-KEM is built from. Not exposed: its keys are only meaningful inside
 //! the Fujisaki-Okamoto transform in `lib.rs`.
 
-use crate::encode::byte_encode;
+use crate::encode::{byte_decode, byte_encode, compress_poly, decompress_poly};
 use crate::hash::g;
-use crate::poly::{multiply_ntts, ntt, poly_add, Poly, N};
+use crate::poly::{intt, multiply_ntts, ntt, poly_add, Poly, N};
 use crate::sample::{prf, sample_ntt, sample_poly_cbd};
 use crate::ParameterSet;
 
@@ -74,4 +74,52 @@ pub fn key_gen(p: ParameterSet, d: &[u8; 32]) -> (Vec<u8>, Vec<u8>) {
     ek.extend_from_slice(&rho);
     let dk: Vec<u8> = s.iter().flat_map(|si| byte_encode(12, si)).collect();
     (ek, dk)
+}
+
+/// FIPS 203 Algorithm 14, K-PKE.Encrypt.
+///
+/// `ek` must already have passed the encapsulation key check; callers go
+/// through `encaps`, which enforces it.
+pub fn encrypt(p: ParameterSet, ek: &[u8], m: &[u8; 32], r: &[u8; 32]) -> Vec<u8> {
+    let k = p.k;
+    let t: Vec<Poly> = ek[..384 * k]
+        .as_chunks::<384>()
+        .0
+        .iter()
+        .map(|chunk| byte_decode(12, chunk))
+        .collect();
+    let mut rho = [0u8; 32];
+    rho.copy_from_slice(&ek[384 * k..384 * k + 32]);
+    let a = matrix(k, &rho);
+
+    let mut n = 0u8;
+    let mut y = noise(p.eta1, k, r, &mut n);
+    let e1 = noise(p.eta2, k, r, &mut n);
+    let e2 = sample_poly_cbd(p.eta2, &prf(p.eta2, r, n));
+    y.iter_mut().for_each(ntt);
+
+    // u = NTT^-1(A^T * y) + e1. The TRANSPOSE: u[i] takes column i of A,
+    // where key generation used row i.
+    let u: Vec<Poly> = e1
+        .iter()
+        .enumerate()
+        .map(|(i, e1i)| {
+            let column: Vec<Poly> = a.iter().map(|row| row[i]).collect();
+            let mut acc = inner_product(&column, &y);
+            intt(&mut acc);
+            poly_add(&acc, e1i)
+        })
+        .collect();
+
+    let mu = decompress_poly(1, &byte_decode(1, m));
+    let mut v = inner_product(&t, &y);
+    intt(&mut v);
+    let v = poly_add(&poly_add(&v, &e2), &mu);
+
+    let mut c: Vec<u8> = u
+        .iter()
+        .flat_map(|ui| byte_encode(p.du, &compress_poly(p.du, ui)))
+        .collect();
+    c.extend(byte_encode(p.dv, &compress_poly(p.dv, &v)));
+    c
 }

@@ -287,7 +287,6 @@ fn key_gen_matches_acvp() {
 }
 
 #[test]
-#[ignore = "ML-KEM is not implemented yet; remove when encaps lands"]
 fn encaps_matches_acvp() {
     let exp = expected(ENCAP_DECAP);
     let p = vectors(ENCAP_DECAP, "prompt.json");

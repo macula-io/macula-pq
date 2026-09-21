@@ -130,8 +130,24 @@ pub fn key_gen(p: ParameterSet, d: &[u8; 32], z: &[u8; 32]) -> (Vec<u8>, Vec<u8>
 /// FIPS 203 Algorithm 17, derandomised: `m` is supplied rather than drawn.
 ///
 /// Returns `(c, k)`.
-pub fn encaps(_p: ParameterSet, _ek: &[u8], _m: &[u8; 32]) -> Result<(Vec<u8>, [u8; 32]), Error> {
-    todo!("ML-KEM encapsulation")
+pub fn encaps(p: ParameterSet, ek: &[u8], m: &[u8; 32]) -> Result<(Vec<u8>, [u8; 32]), Error> {
+    if ek.len() != encaps_key_len(p) {
+        return Err(Error::WrongLength);
+    }
+    if !encaps_key_valid(p, ek) {
+        return Err(Error::EncapsKeyInvalid);
+    }
+    // (K, r) = G(m || H(ek)), FIPS 203 Algorithm 17.
+    let mut seed = [0u8; 64];
+    seed[..32].copy_from_slice(m);
+    seed[32..].copy_from_slice(&hash::h(ek));
+    let (shared, r) = hash::g(&seed);
+    Ok((kpke::encrypt(p, ek, m, &r), shared))
+}
+
+/// `384k + 32` bytes: `k` polynomials at 12 bits, then `rho`.
+fn encaps_key_len(p: ParameterSet) -> usize {
+    384 * p.k + 32
 }
 
 /// FIPS 203 Algorithm 18.
@@ -145,8 +161,16 @@ pub fn decaps(_p: ParameterSet, _dk: &[u8], _c: &[u8]) -> Result<[u8; 32], Error
 }
 
 /// FIPS 203 section 7.2: the encapsulation key check.
-pub fn encaps_key_valid(_p: ParameterSet, _ek: &[u8]) -> bool {
-    todo!("encapsulation key check")
+///
+/// The length is right, and every 12-bit coefficient is already reduced:
+/// decoding then re-encoding must give back the same bytes. A value in
+/// `[q, 4096)` would be silently reduced by decoding, so it shows up as a
+/// difference here. `ek` is public, so an early exit is fine.
+pub fn encaps_key_valid(p: ParameterSet, ek: &[u8]) -> bool {
+    ek.len() == encaps_key_len(p)
+        && ek[..384 * p.k].as_chunks::<384>().0.iter().all(|chunk| {
+            encode::byte_encode(12, &encode::byte_decode(12, chunk)) == chunk.as_slice()
+        })
 }
 
 /// FIPS 203 section 7.3: the decapsulation key check.
