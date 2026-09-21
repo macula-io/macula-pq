@@ -50,4 +50,6 @@
 //! only ever drew its own randomness could not be checked byte-exactly
 //! against anything.
 
+#![forbid(unsafe_code)]
+
 pub mod poly;

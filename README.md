@@ -1,44 +1,81 @@
 # macula-pq
 
-**Post-quantum cryptography that macula owns, rather than depends on.**
+[![CI](https://img.shields.io/github/actions/workflow/status/macula-io/macula-pq/ci.yml?branch=main&label=CI)](https://github.com/macula-io/macula-pq/actions/workflows/ci.yml)
+[![License](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](#license)
+[![Rust](https://img.shields.io/badge/rust-stable-orange?logo=rust)](https://www.rust-lang.org)
+[![unsafe forbidden](https://img.shields.io/badge/unsafe-forbidden-success.svg)](https://github.com/rust-secure-code/safety-dance/)
+[![GitHub Sponsors](https://img.shields.io/badge/GitHub%20Sponsors-support-ea4aaa.svg?logo=githubsponsors&logoColor=white)](https://github.com/sponsors/rgfaber)
 
-This workspace exists so that the post-quantum parts of macula are ours:
-implemented here, verified against the standards bodies' own test vectors,
-and swappable underneath the protocol code without rewriting it.
+<p align="center">
+  <strong>Post-quantum cryptography macula owns, rather than depends on</strong>
+</p>
+
+---
+
+> **Status, 2026-09-21:** early. `macula-pq-kx` is complete and supplies
+> **`SecP384r1MLKEM1024`, which no rustls provider offers** — not `ring`,
+> not `aws-lc-rs`, not rustls itself. `macula-keccak` is complete and
+> passes NIST's own ACVP vectors for SHA3-256/512 and SHAKE128/256,
+> including the Monte Carlo chains. **`macula-mlkem` is unfinished**: the
+> ring arithmetic and NTT are in, nothing else is. **`macula-pq`, the
+> facade, is a stub.** Every crate carries `publish = false` and nothing
+> has been released. See [Status](#status) for what is done and what is
+> not, and [What is not claimed](#what-is-not-claimed) for the timing
+> question, which is a gate on this work rather than a footnote to it.
+
+## What is this?
+
+A Rust workspace implementing the post-quantum parts of
+[Macula](https://github.com/macula-io/macula) directly, so they are not
+supplied by an external library.
+
+**Depend on `macula-pq`.** The other three are implementation crates. They
+are published only because cargo refuses to publish a crate whose path
+dependencies are not themselves on the registry, and they are not
+advertised as entry points: nothing in this stack needs SHA-3 outside
+ML-KEM, since TLS uses SHA-2.
 
 | Crate | What it is | State |
 |---|---|---|
-| `macula-keccak` | Keccak-f[1600], SHA3-256/512, SHAKE128/256 | implemented, NIST ACVP vectors passing |
-| `macula-mlkem` | ML-KEM (FIPS 203) | in progress: ring arithmetic and NTT |
-| `macula-pq-kx` | Hybrid TLS key exchange groups, including `SecP384r1MLKEM1024` | implemented |
-| `macula-pq` | The facade: `provider()` | stubbed |
+| **`macula-pq`** | **The facade. This is what you depend on.** | **stub** |
+| `macula-keccak` | Keccak-f[1600], SHA3-256/512, SHAKE128/256 | complete, NIST ACVP vectors passing |
+| `macula-mlkem` | ML-KEM (FIPS 203) | **unfinished**: ring arithmetic and NTT only |
+| `macula-pq-kx` | Hybrid TLS key exchange groups, including `SecP384r1MLKEM1024` | complete |
 
-## How this is consumed
+⛔ **It is four crates rather than one with modules because the layering is
+load-bearing:**
 
-    macula_quic   ->  macula-pq        (+ rustls, quinn: the envelope)
-    macula-rust   ->  macula-pq
-    macula-pq     ->  aws-lc-rs        internal, invisible to consumers
-                  ->  macula-keccak, macula-mlkem, macula-pq-kx
+    macula-keccak   zero dependencies
+    macula-mlkem    keccak + OS randomness       no rustls
+    macula-pq-kx    mlkem + rustls + aws-lc-rs
+    macula-pq       facade
 
-**`aws-lc-rs` sits BEHIND the facade, not beside it.** A consumer depends
-on `macula-pq` and on nothing else for crypto: no provider selection, no
-`ring` or `aws-lc-rs` feature flags in its manifest. `macula_pq::provider()`
-is its entire crypto surface.
+Collapse that and anyone wanting ML-KEM is forced to take rustls and
+`aws-lc-rs` with it. **If `macula-mlkem` ever gains a rustls dependency
+that separation is gone**, and it will not be visible from inside the
+crate.
 
-Two properties that buys:
+### `SecP384r1MLKEM1024`, and why it had to be written
 
-1. **The `kx_groups` list exists in exactly one place.** No second copy can
-   regain a classical group while the negative control guarding it lives in
-   a different crate and never fires.
-2. **Replacing `aws-lc-rs` is one line inside the facade and no consumer
-   changes.** The same property that makes swapping in our own ML-KEM a
-   component change rather than a rewrite.
+It is the key exchange group macula's `pq_hybrid` profile declares, and
+**no provider supplies it**. BSI TR-02102-2 states it *intends to
+recommend* the group once the corresponding RFC is adopted. Until this
+workspace, that profile's declaration was aspirational.
 
-⚠ **THE DIAGRAM ABOVE IS THE INTENDED SHAPE, NOT THE CURRENT STATE.**
-Neither `macula_quic` nor `macula-rust` has been migrated: both still
-select a provider themselves today, and `macula-rust` still selects `ring`.
-Those are follow-ups in those repositories and neither is done. Nothing
-here should be read as describing what is deployed.
+## Features
+
+- **`SecP384r1MLKEM1024` as a rustls `SupportedKxGroup`**, composed per
+  [draft-ietf-tls-ecdhe-mlkem](https://datatracker.ietf.org/doc/html/draft-ietf-tls-ecdhe-mlkem-05),
+  code point `0x11ED`.
+- **SHA3-256, SHA3-512, SHAKE128 and SHAKE256**, with an incremental
+  SHAKE128 reader for multi-block squeezing.
+- **Byte-exact verification against the standards bodies' own test
+  vectors**, vendored with provenance and per-file checksums.
+- **No `unsafe`** anywhere: every crate carries `#![forbid(unsafe_code)]`.
+- **No copied constants.** Lengths are measured from live components and
+  the NTT's zeta table is computed at compile time from its definition,
+  because one mistyped digit in a transcribed table gives a coherent
+  implementation that fails everything with no hint where.
 
 ## The boundary, precisely
 
@@ -50,96 +87,152 @@ here should be read as describing what is deployed.
 
 **The rule is that `aws-lc-rs` supplies no post-quantum primitive.**
 Everything left to it is either quantum-safe already or paired with ML-KEM
-in a hybrid. None of it is post-quantum, so none of it is ours to write.
+in a hybrid, so none of it is ours to write. Writing our own AES-GCM would
+buy nothing and cost real safety.
 
 ⚠ **Keccak does not appear in the `CryptoProvider` at all.** TLS 1.3's key
 schedule uses SHA-256 and SHA-384, not SHA-3, so `macula-keccak` is used
 **only inside ML-KEM**. "We own the hashing" is false at the TLS layer and
-true inside the post-quantum primitive, and the two are worth keeping
-apart.
+true inside the post-quantum primitive.
 
-**rustls and quinn are the envelope**: TLS and QUIC protocol engineering,
-record layers, handshake state machines, key schedules. There is no reason
-to own that, and owning it would add risk without serving the thesis.
-Writing our own AES-GCM would buy nothing and cost real safety.
+**rustls and quinn are the envelope**: TLS and QUIC protocol engineering.
+There is no reason to own that.
 
-Each crate is generic over the layer beneath it, so replacing a component
-is a component change rather than a rewrite. `macula-pq-kx` reaches its
-ML-KEM through a trait object precisely so `macula-mlkem` can take that
-slot when it is ready.
+### Randomness comes from the operating system, deliberately
 
-### ⛔ Randomness comes from the operating system, deliberately
+ML-KEM key generation and encapsulation take randomness from the **OS
+CSPRNG**, trusted as part of the platform. Not `aws-lc-rs`, and
+**emphatically not ours**.
 
-ML-KEM key generation and encapsulation take their randomness from the **OS
-CSPRNG**, trusted as part of the platform in the same way OTP's `crypto` is.
-It is not `aws-lc-rs`, and it is **emphatically not ours**.
+**A hand-written CSPRNG is the one piece of this where rolling your own
+would be unambiguously wrong.** Every other crate here is verifiable
+against published vectors; randomness has none, because you cannot test
+that output is unpredictable. It is the one place a bug would be invisible
+to the method everything else depends on.
 
-This is a boundary, not an omission. **A hand-written CSPRNG is the one
-piece of this where rolling your own would be unambiguously wrong.** Every
-other crate here is verifiable against published vectors; randomness has
-none, because you cannot test that output is unpredictable. It is the one
-place where a bug would be undetectable by the method everything else
-depends on.
+## How this is consumed
 
-The kernel is also not an external supplier in the sense this workspace is
-removing: it is not a library dependency at all.
+    macula_quic   ->  macula-pq        (+ rustls, quinn: the envelope)
+    macula-rust   ->  macula-pq
+    macula-pq     ->  aws-lc-rs        internal, invisible to consumers
+                  ->  macula-keccak, macula-mlkem, macula-pq-kx
 
-## `SecP384r1MLKEM1024`, and why it had to be written
+**`aws-lc-rs` sits behind the facade, not beside it.** A consumer depends
+on `macula-pq` and nothing else for crypto: no provider selection, no
+`ring` or `aws-lc-rs` feature flags in its manifest.
 
-It is the key exchange group macula's `pq_hybrid` profile declares, and
-**no provider supplies it**: not `ring`, not `aws-lc-rs`, not rustls. BSI
-TR-02102-2 states it *intends to recommend* the group once the
-corresponding RFC is adopted. Until this crate, the profile's declaration
-was aspirational.
+1. **The `kx_groups` list exists in exactly one place.** No second copy can
+   regain a classical group while the negative control guarding it lives in
+   a different crate and never fires.
+2. **Replacing `aws-lc-rs` is one line inside the facade** and no consumer
+   changes.
 
-## How these crates are verified
+⚠ **THE DIAGRAM ABOVE IS THE INTENDED SHAPE, NOT THE CURRENT STATE.**
+Neither `macula_quic` nor `macula-rust` has been migrated. Both still
+select a provider themselves, and `macula-rust` still selects `ring`.
+Those are follow-ups in those repositories and neither is done.
 
-**Against the standards bodies' own vectors, byte-exact, vendored with
-provenance and checksums.** Not against each other, and not by round trip:
-two matching wrong implementations agree perfectly.
+## Testing
 
-Where no vectors exist, the claim is stated as what it is.
-`macula-pq-kx`'s hybrid composition has none published, so it is verified
-*differentially* against rustls's independently written implementation of
-the same draft, and its documentation says so rather than implying more.
+```sh
+./scripts/test.sh
+```
 
-## ⚠ What is not claimed
+Four gates: `cargo test`, `cargo test --release`, `cargo clippy -D
+warnings`, `cargo fmt --check`. 33 tests at the time of writing. CI runs
+this same script rather than restating the gates, so the two cannot drift.
 
-**Nothing here is claimed to be constant-time.** `macula-keccak` argues
-from the algorithm's shape that there is no secret-dependent branch or
-table index to write, and says plainly that this is an argument and not a
-measurement. No timing analysis has been performed on any crate here.
+**Both build profiles are required and neither is redundant.** Debug panics
+on arithmetic overflow, which is how a real i32 overflow in this
+workspace's Barrett reduction was caught; in release it would have wrapped
+silently. Release is the binary that ships and the only place the
+optimiser's output exists, so **a constant-time claim tested only in debug
+is untested**.
 
-A timing harness is a **gate** on the ML-KEM work rather than a follow-up
-to it: shipping our own ML-KEM with an unverified timing claim would be
-worse than the dependency it replaces, because that one has had the
-analysis and ours would merely look finished.
+### The pre-commit gate
 
-## Contributing: the pre-commit gate
-
-`scripts/test.sh` runs four gates: `cargo test`, `cargo test --release`,
-`cargo clippy -D warnings`, and `cargo fmt --check`. A committed
-`.githooks/pre-commit` runs it and **refuses any commit that fails**.
-
-Enable it after cloning:
+`.githooks/pre-commit` runs the same script and **refuses any commit that
+fails**. Enable it after cloning:
 
 ```sh
 git config core.hooksPath .githooks
 ```
 
-**Both build profiles are required and neither is redundant.** Debug panics
-on arithmetic overflow, which is how a real i32 overflow in this crate's
-Barrett reduction was caught; in release it would have wrapped silently.
-Release is the binary that ships and the only place the optimiser's output
-exists, so **a constant-time claim tested only in debug is untested**.
+⚠ If a commit genuinely must bypass it, use `--no-verify` **and say so in
+the commit message with the reason**. An undocumented bypass that everyone
+uses silently is worse than a documented one used twice.
 
-⚠ If a commit genuinely must bypass the hook, use `--no-verify` **and say
-so in the commit message with the reason**. An undocumented bypass that
-everyone uses silently is worse than a documented one used twice.
+### How these crates are verified
 
-## Licence
+**Against the standards bodies' own vectors, byte-exact, vendored with
+provenance and checksums** — not against each other, and not by round
+trip, because two matching wrong implementations agree perfectly.
 
-Apache-2.0. See [LICENSE](LICENSE).
+`macula-keccak` runs NIST's ACVP vectors for SHA3-256, SHA3-512, SHAKE128
+and SHAKE256, including the Monte Carlo chains, plus FIPS 202 known
+answers. See [`macula-keccak/vectors/README.md`](macula-keccak/vectors/README.md)
+for provenance, checksums, and why two vector revisions are used rather
+than the one named after the standard.
 
-Vendored NIST test vectors are US Government works; see each `vectors/`
-directory's README for provenance, checksums and the licence position.
+Where no vectors exist, the claim is stated as what it is.
+`macula-pq-kx`'s hybrid composition has none published, so it is verified
+**differentially** against rustls's independently written implementation of
+the same draft, and its documentation says so rather than implying more.
+
+## Status
+
+**Done**
+
+- `macula-keccak`: SHA3-256/512, SHAKE128/256, incremental SHAKE128
+  reader; ACVP AFT, VOT and MCT vectors, plus FIPS 202 known answers.
+- `macula-pq-kx`: `SecP384r1MLKEM1024`, verified differentially against
+  rustls's `SECP256R1MLKEM768`.
+- The gate: four checks, two build profiles, one script, run by the
+  pre-commit hook and by CI.
+
+**Not done**
+
+- `macula-mlkem`: only the ring arithmetic, NTT and a compile-time zeta
+  table exist. No sampling, no K-PKE, no FO transform, no key checks, and
+  no vector harness yet.
+- `macula-pq`: `provider()` is a `todo!()`.
+- **A timing harness**, which is a gate on calling `macula-mlkem` done.
+- Migrating `macula_quic` and `macula-rust` onto the facade.
+- Nothing is published; every crate carries `publish = false`.
+
+## What is not claimed
+
+**Nothing here is claimed to be constant-time.**
+
+`macula-keccak` argues from the algorithm's shape that there is no
+secret-dependent branch or table index to write, since the round count is
+fixed, the rotation offsets are compile-time constants and the round
+constants are indexed by round number. **That is an argument, not a
+measurement.**
+
+**No timing analysis has been performed on any crate here.** A harness
+that measures it is a **gate** on the ML-KEM work rather than a follow-up:
+shipping our own ML-KEM with an unverified timing claim would be worse
+than the dependency it replaces, because that one has had the analysis and
+ours would merely look finished.
+
+**MSRV is not established.** The gate runs on stable; no minimum has been
+determined or tested.
+
+## Related projects
+
+| Project | Description |
+|---|---|
+| [macula](https://github.com/macula-io/macula) | The reference SDK (Erlang/OTP) whose `pq_hybrid` profile declares `SecP384r1MLKEM1024` |
+| [macula-rust](https://github.com/macula-io/macula-rust) | Rust SDK, an intended consumer of this facade |
+| [macula-station](https://github.com/macula-io/macula-station) | The station: DHT, SWIM, routing, peering |
+| [macula-realm](https://github.com/macula-io/macula-realm) | Managed-realm identity + certificate authority |
+
+## License
+
+Licensed under the Apache License, Version 2.0 ([LICENSE](LICENSE) or
+<http://www.apache.org/licenses/LICENSE-2.0>).
+
+Unless you explicitly state otherwise, any contribution intentionally
+submitted for inclusion in this workspace by you shall be licensed as
+above, without any additional terms or conditions.

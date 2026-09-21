@@ -1,0 +1,116 @@
+name: Release to crates.io
+
+# ⛔ ALL FOUR CRATES ARE PUBLISHED. ONLY `macula-pq` IS A SUPPORTED ENTRY
+# POINT. Both halves matter and a later reader will otherwise "simplify"
+# one of them away.
+#
+# WHY ALL FOUR ARE PUBLISHED: a mechanical constraint, not a product
+# decision. Cargo refuses to publish a crate whose path dependencies are
+# not themselves on crates.io. `macula-pq` depends on `macula-pq-kx`, and
+# `macula-mlkem` depends on `macula-keccak`, so publishing the facade
+# requires publishing everything it stands on. The inner three exist on
+# the registry without being advertised.
+#
+# WHAT TO DEPEND ON IS `macula-pq`. There is no use case for consuming
+# `macula-keccak` alone: nothing in this stack needs SHA-3 outside ML-KEM,
+# because TLS uses SHA-2, and this is not a general-purpose Keccak
+# maintained for strangers.
+#
+# ⛔ WHY THIS IS FOUR CRATES AND NOT ONE WITH MODULES. The layering is
+# load-bearing:
+#
+#   macula-keccak   zero dependencies
+#   macula-mlkem    keccak + OS randomness       NO rustls
+#   macula-pq-kx    mlkem + rustls + aws-lc-rs
+#   macula-pq       facade
+#
+# Collapse that and anyone wanting ML-KEM is forced to take rustls and
+# aws-lc-rs with it. Keeping the maths free of the TLS envelope is the
+# whole reason the envelope and the maths were separated in the first
+# place. IF `macula-mlkem` EVER GAINS A RUSTLS DEPENDENCY THAT LAYERING IS
+# GONE, and nobody will notice from inside the crate.
+#
+# Publication order is dependency order:
+#   macula-keccak -> macula-mlkem -> macula-pq-kx -> macula-pq
+#
+# ⚠ EVERY CRATE CURRENTLY CARRIES `publish = false`, ON PURPOSE. At the
+# time of writing `macula-mlkem` is a stub and `macula-pq`'s `provider()`
+# is a `todo!()`. A stray `v*` tag therefore CANNOT publish a stub: cargo
+# refuses. Remove `publish = false` from a crate only when that crate is
+# genuinely ready, one at a time. That flag is the last safety catch
+# between an accidental tag and a published stub, so do not clear them all
+# in one sweep to "make the workflow work".
+
+on:
+  push:
+    tags: ["v*"]
+
+jobs:
+  publish:
+    name: publish to crates.io
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+
+      - name: Extract version from tag
+        id: version
+        run: echo "VERSION=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
+
+      # Every crate in the workspace shares one version, so the tag must
+      # match all of them. A mismatch in any crate fails the release
+      # rather than publishing a set that disagrees with its own tag.
+      - name: Validate every crate's version matches the tag
+        run: |
+          for c in macula-keccak macula-mlkem macula-pq-kx macula-pq; do
+            v=$(sed -n 's/^version = "\(.*\)"/\1/p' "$c/Cargo.toml" | head -1)
+            if [ "$v" != "${{ steps.version.outputs.VERSION }}" ]; then
+              echo "::error::$c is $v, tag says ${{ steps.version.outputs.VERSION }}"
+              exit 1
+            fi
+          done
+
+      # Re-runs the full gate here rather than trusting ci.yml's run: a
+      # tag push is a separate event from the branch push CI validated, so
+      # there is no prior output to reuse. Same script as the hook and CI.
+      - run: ./scripts/test.sh
+
+      # Dry-run needs no registry auth: it verifies metadata, packages and
+      # checks the result, and never uploads.
+      - name: Dry-run publish, in dependency order
+        run: |
+          for c in macula-keccak macula-mlkem macula-pq-kx macula-pq; do
+            cargo publish --dry-run -p "$c"
+          done
+
+      # CRATES_IO_TOKEN is a plain crates.io API token, not OIDC Trusted
+      # Publishing, for the same reason macula-rust uses one: crates.io
+      # has no pending-publisher mechanism, so a Trusted Publisher can
+      # only be configured AFTER a crate's first release exists. A static
+      # token is the only thing that can perform that first release from
+      # CI. Migrate to rust-lang/crates-io-auth-action once each crate has
+      # shipped once.
+      # ⚠ EACH PUBLISH MUST BE VISIBLE ON THE REGISTRY BEFORE THE NEXT
+      # ONE RESOLVES, so this retries rather than assuming propagation is
+      # instant. A single-crate workflow like macula-rust's never shows
+      # this, because it has nothing to wait for.
+      - name: Publish to crates.io, in dependency order
+        run: |
+          for c in macula-keccak macula-mlkem macula-pq-kx macula-pq; do
+            for attempt in 1 2 3 4 5 6; do
+              if cargo publish -p "$c"; then
+                echo "published $c"
+                break
+              fi
+              if [ "$attempt" = 6 ]; then
+                echo "::error::$c failed to publish after $attempt attempts"
+                exit 1
+              fi
+              echo "$c not resolvable yet (attempt $attempt), waiting for the registry"
+              sleep 30
+            done
+          done
+        env:
+          CARGO_REGISTRY_TOKEN: ${{ secrets.CRATES_IO_TOKEN }}

@@ -37,6 +37,8 @@
 //! that no classical-only group appears in the list is what makes the
 //! posture checkable rather than merely documented.
 
+#![forbid(unsafe_code)]
+
 /// The crypto provider every macula component builds its TLS from.
 ///
 /// Not yet implemented: see the module documentation.

@@ -1,0 +1,34 @@
+name: CI
+
+# `main`, not `master`: this repository's default branch.
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  gate:
+    name: scripts/test.sh (debug, release, clippy, fmt)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+      - uses: Swatinem/rust-cache@v2
+
+      # ⛔ CI RUNS THE SAME SCRIPT AS THE PRE-COMMIT HOOK, deliberately,
+      # rather than restating the four gates as separate steps here.
+      #
+      # Two gates that can disagree is the contract-in-two-places shape:
+      # whichever copy gains or loses a check, the other keeps passing and
+      # nobody notices which one is authoritative. One script, two
+      # invocations, no second copy to drift.
+      #
+      # It also means a green CI run and a successful local commit assert
+      # exactly the same property, so "it passed locally" and "it passed
+      # in CI" cannot diverge.
+      - run: ./scripts/test.sh

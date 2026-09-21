@@ -92,6 +92,8 @@
 //! analysis and no evaluation. Do not describe it as constant-time or
 //! side-channel resistant.
 
+#![forbid(unsafe_code)]
+
 use std::boxed::Box;
 use std::vec::Vec;
 
