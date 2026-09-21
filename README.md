@@ -19,16 +19,19 @@
 
 ---
 
-> **Status, 2026-09-21:** early. `macula-pq-kx` is complete and supplies
-> **`SecP384r1MLKEM1024`, which no rustls provider offers** — not `ring`,
+> **Status, 2026-09-22:** early. `macula-pq-kx` is complete and supplies
+> **`SecP384r1MLKEM1024`, which no rustls provider offers**: not `ring`,
 > not `aws-lc-rs`, not rustls itself. `macula-keccak` is complete and
 > passes NIST's own ACVP vectors for SHA3-256/512 and SHAKE128/256,
-> including the Monte Carlo chains. **`macula-mlkem` is unfinished**: the
-> ring arithmetic and NTT are in, nothing else is. **`macula-pq`, the
-> facade, is a stub.** Every crate carries `publish = false` and nothing
-> has been released. See [Status](#status) for what is done and what is
-> not, and [What is not claimed](#what-is-not-claimed) for the timing
-> question, which is a gate on this work rather than a footnote to it.
+> including the Monte Carlo chains. **`macula-mlkem` passes every NIST
+> ACVP vector for ML-KEM-512, -768 and -1024**, implicit rejection and key
+> checks included, and has been timed: no leak detected (see [What is not
+> claimed](#what-is-not-claimed) for exactly what that means). It is **not
+> finished**: callers supply its seeds, since the API that draws them from
+> the OS is not written, and `macula-pq-kx` does not use it yet.
+> **`macula-pq`, the facade, is a stub.** Every crate carries `publish =
+> false` and nothing has been released. See [Status](#status) for what is
+> done and what is not.
 
 ## What is this?
 
@@ -64,7 +67,7 @@ ML-KEM, since TLS uses SHA-2.
 |---|---|---|
 | **`macula-pq`** | **The facade. This is what you depend on.** | **stub** |
 | `macula-keccak` | Keccak-f[1600], SHA3-256/512, SHAKE128/256 | complete, NIST ACVP vectors passing |
-| `macula-mlkem` | ML-KEM (FIPS 203) | **unfinished**: ring arithmetic and NTT only |
+| `macula-mlkem` | ML-KEM (FIPS 203) | **unfinished**: NIST ACVP vectors passing; seeds come from the caller, no OS-randomness API yet |
 | `macula-pq-kx` | Hybrid TLS key exchange groups, including `SecP384r1MLKEM1024` | complete |
 
 ⛔ **It is four crates rather than one with modules because the layering is
@@ -72,7 +75,7 @@ load-bearing:**
 
     macula-keccak   zero dependencies
     macula-mlkem    keccak + OS randomness       no rustls
-    macula-pq-kx    mlkem + rustls + aws-lc-rs
+    macula-pq-kx    rustls + aws-lc-rs           macula-mlkem not yet wired in
     macula-pq       facade
 
 Collapse that and anyone wanting ML-KEM is forced to take rustls and
@@ -163,9 +166,9 @@ Those are follow-ups in those repositories and neither is done.
 ./scripts/test.sh
 ```
 
-Four gates: `cargo test`, `cargo test --release`, `cargo clippy -D
-warnings`, `cargo fmt --check`. 33 tests at the time of writing. CI runs
-this same script rather than restating the gates, so the two cannot drift.
+Five gates: `cargo test`, `cargo test --release`, `cargo clippy -D
+warnings`, `scripts/check-readme.sh`, `cargo fmt --check`. CI runs this
+same script rather than restating the gates, so the two cannot drift.
 
 **Both build profiles are required and neither is redundant.** Debug panics
 on arithmetic overflow, which is how a real i32 overflow in this
@@ -187,10 +190,32 @@ git config core.hooksPath .githooks
 the commit message with the reason**. An undocumented bypass that everyone
 uses silently is worse than a documented one used twice.
 
+### Timing
+
+```sh
+./scripts/timing.sh
+```
+
+**Not part of the gate**: it takes minutes, and a shared CI runner is too
+noisy to time on. It times ML-KEM-1024 decapsulation and encapsulation in
+a release build, dudect-style, and checks itself before its results mean
+anything:
+
+- **Positive control**: a real decapsulation with an early-exit `==`
+  planted after it. Not flagged, and the run exits 2.
+- **Negative control**: byte-identical ciphertexts reached by two
+  different preparation paths. Flagged, and the run exits 3.
+
+The positive control is sized to the leak it stands for. With `decaps`'s
+constant-time compare replaced by `==` and a branch, the valid-against-
+invalid test flags it; with the real code it does not.
+[`examples/timing.rs`](macula-mlkem/examples/timing.rs) documents the
+method and the confounds the negative control exposed.
+
 ### How these crates are verified
 
 **Against the standards bodies' own vectors, byte-exact, vendored with
-provenance and checksums** — not against each other, and not by round
+provenance and checksums**: not against each other, and not by round
 trip, because two matching wrong implementations agree perfectly.
 
 `macula-keccak` runs NIST's ACVP vectors for SHA3-256, SHA3-512, SHAKE128
@@ -198,6 +223,13 @@ and SHAKE256, including the Monte Carlo chains, plus FIPS 202 known
 answers. See [`macula-keccak/vectors/README.md`](macula-keccak/vectors/README.md)
 for provenance, checksums, and why two vector revisions are used rather
 than the one named after the standard.
+
+`macula-mlkem` runs NIST's ACVP vectors for key generation,
+encapsulation, decapsulation and both key checks, at all three parameter
+sets. The fifteen implicit-rejection cases are each identified by NIST's
+own label, so none can pass for the wrong reason unnoticed. See
+[`macula-mlkem/vectors/README.md`](macula-mlkem/vectors/README.md) for
+provenance and checksums.
 
 Where no vectors exist, the claim is stated as what it is.
 `macula-pq-kx`'s hybrid composition has none published, so it is verified
@@ -212,16 +244,21 @@ the same draft, and its documentation says so rather than implying more.
   reader; ACVP AFT, VOT and MCT vectors, plus FIPS 202 known answers.
 - `macula-pq-kx`: `SecP384r1MLKEM1024`, verified differentially against
   rustls's `SECP256R1MLKEM768`.
-- The gate: four checks, two build profiles, one script, run by the
+- `macula-mlkem`: key generation, encapsulation, decapsulation with
+  implicit rejection, and both key checks, at ML-KEM-512, -768 and -1024,
+  from caller-supplied seeds. Every ACVP vector passes byte-exact.
+- The timing harness, with a positive and a negative control. ML-KEM-1024
+  measured: no leak detected.
+- The gate: five checks, two build profiles, one script, run by the
   pre-commit hook and by CI.
 
 **Not done**
 
-- `macula-mlkem`: only the ring arithmetic, NTT and a compile-time zeta
-  table exist. No sampling, no K-PKE, no FO transform, no key checks, and
-  no vector harness yet.
+- `macula-mlkem`: key generation and encapsulation that draw their seeds
+  from the OS CSPRNG. Today the caller supplies `d`, `z` and `m`.
+- `macula-pq-kx` onto `macula-mlkem`. Its ML-KEM-1024 comes from
+  `aws-lc-rs`, through rustls.
 - `macula-pq`: `provider()` is a `todo!()`.
-- **A timing harness**, which is a gate on calling `macula-mlkem` done.
 - Migrating `macula_quic` and `macula-rust` onto the facade.
 - Nothing is published; every crate carries `publish = false`.
 
@@ -229,17 +266,24 @@ the same draft, and its documentation says so rather than implying more.
 
 **Nothing here is claimed to be constant-time.**
 
-`macula-keccak` argues from the algorithm's shape that there is no
-secret-dependent branch or table index to write, since the round count is
-fixed, the rotation offsets are compile-time constants and the round
-constants are indexed by round number. **That is an argument, not a
+`macula-mlkem` has been **measured**, which is a different thing. On one
+AMD Ryzen 9 5950X, rustc 1.98.1, release build, 200,000 measurements per
+test, the harness detected no timing difference in ML-KEM-1024
+decapsulation (valid against invalid ciphertexts; one fixed ciphertext
+against random valid ones) or encapsulation (fixed against random
+messages), with both controls behaving. **That is "no leak detected at
+that n, on that machine, with that compiler"**, not a proof. It covers
+ML-KEM-1024 only: ML-KEM-512 and -768 run the same code with different
+parameters and have not been timed.
+
+`macula-keccak` is measured only inside ML-KEM, where it hashes secret
+data. On its own it rests on an argument from the algorithm's shape: there
+is no secret-dependent branch or table index to write, since the round
+count is fixed, the rotation offsets are compile-time constants and the
+round constants are indexed by round number. **That is an argument, not a
 measurement.**
 
-**No timing analysis has been performed on any crate here.** A harness
-that measures it is a **gate** on the ML-KEM work rather than a follow-up:
-shipping our own ML-KEM with an unverified timing claim would be worse
-than the dependency it replaces, because that one has had the analysis and
-ours would merely look finished.
+`macula-pq-kx` has not been timed. Both its halves come from `aws-lc-rs`.
 
 **MSRV is not established.** The gate runs on stable; no minimum has been
 determined or tested.

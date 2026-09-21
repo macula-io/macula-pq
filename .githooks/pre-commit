@@ -29,5 +29,5 @@
 # documented one used twice.
 set -euo pipefail
 cd "$(git rev-parse --show-toplevel)"
-echo "pre-commit: scripts/test.sh (debug, release, clippy, fmt)"
+echo "pre-commit: scripts/test.sh"
 exec ./scripts/test.sh
