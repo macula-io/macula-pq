@@ -9,6 +9,9 @@
 #   1. SHAPE   does it follow the SDK template (macula-rust, macula-go):
 #              H1, badge row, logo block, centred tagline, rule, dated
 #              status blockquote, and the closing sections
+#
+# ⛔ A TRUE DOCUMENT CAN BE THE WRONG DOCUMENT, AND CONTENT VERIFICATION
+# CANNOT SEE THAT. That is why shape is checked at all.
 #   2. CONTENT do its claims match the tree: links resolve, referenced
 #              files exist, asserted counts are real
 #
