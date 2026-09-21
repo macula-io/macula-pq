@@ -1,10 +1,12 @@
 //! Structural checks on the ring arithmetic, before any vector is
 //! involved. These cannot prove ML-KEM correct; they localise a fault to
 //! the NTT rather than to sampling or encoding when a vector goes red.
-use macula_mlkem::poly::{Q, intt, multiply_ntts, ntt, reduce};
+use macula_mlkem::poly::{intt, multiply_ntts, ntt, reduce, Q};
 
 fn lcg(seed: &mut u64) -> i16 {
-    *seed = seed.wrapping_mul(6364136223846793005).wrapping_add(1442695040888963407);
+    *seed = seed
+        .wrapping_mul(6364136223846793005)
+        .wrapping_add(1442695040888963407);
     ((*seed >> 33) % Q as u64) as i16
 }
 
@@ -28,7 +30,11 @@ fn reduce_lands_in_range() {
     for a in [0i32, 1, Q - 1, Q, Q + 1, 3328 * 3328, -1, -Q, -3328 * 3328] {
         let r = reduce(a);
         assert!((0..Q as i16).contains(&r), "reduce({a}) = {r}");
-        assert_eq!(((r as i32 - a) % Q + Q) % Q, 0, "reduce({a}) changed the residue");
+        assert_eq!(
+            ((r as i32 - a) % Q + Q) % Q,
+            0,
+            "reduce({a}) changed the residue"
+        );
     }
 }
 
@@ -40,16 +46,19 @@ fn ntt_multiplication_agrees_with_schoolbook() {
     for _ in 0..8 {
         let mut a = [0i16; 256];
         let mut b = [0i16; 256];
-        for i in 0..256 {
-            a[i] = lcg(&mut seed);
-            b[i] = lcg(&mut seed);
+        for (x, y) in a.iter_mut().zip(b.iter_mut()) {
+            *x = lcg(&mut seed);
+            *y = lcg(&mut seed);
         }
         // schoolbook, negacyclic
+        // Schoolbook negacyclic multiplication, written independently of
+        // the NTT so it can disagree with it. X^256 = -1, hence the
+        // subtraction when the degree wraps.
         let mut want = [0i32; 256];
-        for i in 0..256 {
-            for j in 0..256 {
+        for (i, &ai) in a.iter().enumerate() {
+            for (j, &bj) in b.iter().enumerate() {
                 let k = i + j;
-                let v = a[i] as i32 * b[j] as i32;
+                let v = ai as i32 * bj as i32;
                 if k < 256 {
                     want[k] += v;
                 } else {
