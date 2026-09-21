@@ -14,7 +14,7 @@
 </p>
 
 <p align="center">
-  <strong>Post-quantum cryptography library for Rust, with hybrid TLS key exchange no rustls provider ships</strong>
+  <strong>Post-quantum cryptography library with hybrid TLS key exchange</strong>
 </p>
 
 ---
@@ -32,14 +32,20 @@
 
 ## What is this?
 
-A Rust implementation of ML-KEM (FIPS 203), the Keccak primitives it is
-built on, and the hybrid TLS key exchange groups that combine it with
-elliptic-curve Diffie-Hellman for rustls.
+**Post-quantum cryptography library with hybrid TLS key exchange.**
+ML-KEM (FIPS 203), the Keccak primitives it is built on, and the hybrid
+key exchange groups that combine it with elliptic-curve Diffie-Hellman
+for rustls.
 
-It supplies **`SecP384r1MLKEM1024`**, which **no rustls provider ships**:
-not `ring`, not `aws-lc-rs`, not rustls itself. Everything is verified
-byte-exact against the standards bodies' own test vectors, vendored with
-provenance and checksums.
+The genuinely distinctive part is **`SecP384r1MLKEM1024`**, which **no
+rustls provider ships**: not `ring`, not `aws-lc-rs`, not rustls itself.
+
+⚠ **The ML-KEM here is not special and this README will not pretend it
+is.** FIPS 203 is a NIST standard with several good implementations,
+`aws-lc-rs` and RustCrypto's `ml-kem` among them. Ours is written from
+scratch and verified byte-exact against NIST's own ACVP vectors, which is
+a claim about **independence and assurance**, not about being first or
+better.
 
 **Why it exists.** Macula's `pq_hybrid` profile declares
 `SecP384r1MLKEM1024`, and until this workspace no implementation of that
