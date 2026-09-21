@@ -163,8 +163,8 @@ fn absorb(state: &mut [u64; 25], msg: &[u8], rate: usize, pad: u8) {
 }
 
 fn xor_block(state: &mut [u64; 25], block: &[u8]) {
-    for (i, word) in block.chunks_exact(8).enumerate() {
-        state[i] ^= u64::from_le_bytes(word.try_into().unwrap());
+    for (i, word) in block.as_chunks::<8>().0.iter().enumerate() {
+        state[i] ^= u64::from_le_bytes(*word);
     }
     // A rate is always a multiple of 8 for every function here, so there
     // is no partial trailing word to handle.
@@ -222,7 +222,7 @@ const PI: [usize; 24] = [
 ];
 
 fn keccak_f1600(a: &mut [u64; 25]) {
-    for round in 0..24 {
+    for rc in RC {
         // theta
         let mut c = [0u64; 5];
         for x in 0..5 {
@@ -256,6 +256,6 @@ fn keccak_f1600(a: &mut [u64; 25]) {
             }
         }
         // iota
-        a[0] ^= RC[round];
+        a[0] ^= rc;
     }
 }

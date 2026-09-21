@@ -68,7 +68,7 @@ fn hex(s: &str) -> Vec<u8> {
 /// vector says is not there.
 fn message(test: &Value) -> Option<Vec<u8>> {
     let bits = test["len"].as_u64().unwrap() as usize;
-    if bits % 8 != 0 {
+    if !bits.is_multiple_of(8) {
         return None;
     }
     let mut m = hex(test["msg"].as_str().unwrap());
@@ -115,7 +115,7 @@ fn run(dir: &str, f: &dyn Fn(&[u8], usize) -> Vec<u8>) -> usize {
             // and is skipped for the same reason as a bit-oriented input.
             if t.get("outLen")
                 .and_then(|v| v.as_u64())
-                .is_some_and(|b| b % 8 != 0)
+                .is_some_and(|b| !b.is_multiple_of(8))
             {
                 continue;
             }
@@ -220,9 +220,9 @@ fn multi_block_coverage_exists_for_both_functions() {
             .unwrap()
             .iter()
             .flat_map(|g| g["tests"].as_array().unwrap())
-            .filter(|t| t["len"].as_u64().unwrap() % 8 == 0)
+            .filter(|t| t["len"].as_u64().unwrap().is_multiple_of(8))
             .filter_map(|t| t.get("outLen").and_then(|v| v.as_u64()))
-            .filter(|b| b % 8 == 0)
+            .filter(|b| b.is_multiple_of(8))
             .filter(|b| (*b as usize) / 8 > rate)
             .count();
         assert_eq!(
