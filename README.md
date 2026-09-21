@@ -9,9 +9,36 @@ and swappable underneath the protocol code without rewriting it.
 | Crate | What it is | State |
 |---|---|---|
 | `macula-keccak` | Keccak-f[1600], SHA3-256/512, SHAKE128/256 | implemented, NIST ACVP vectors passing |
-| `macula-mlkem` | ML-KEM (FIPS 203) | not yet implemented |
+| `macula-mlkem` | ML-KEM (FIPS 203) | in progress: ring arithmetic and NTT |
 | `macula-pq-kx` | Hybrid TLS key exchange groups, including `SecP384r1MLKEM1024` | implemented |
 | `macula-pq` | The facade: `provider()` | stubbed |
+
+## How this is consumed
+
+    macula_quic   ->  macula-pq        (+ rustls, quinn: the envelope)
+    macula-rust   ->  macula-pq
+    macula-pq     ->  aws-lc-rs        internal, invisible to consumers
+                  ->  macula-keccak, macula-mlkem, macula-pq-kx
+
+**`aws-lc-rs` sits BEHIND the facade, not beside it.** A consumer depends
+on `macula-pq` and on nothing else for crypto: no provider selection, no
+`ring` or `aws-lc-rs` feature flags in its manifest. `macula_pq::provider()`
+is its entire crypto surface.
+
+Two properties that buys:
+
+1. **The `kx_groups` list exists in exactly one place.** No second copy can
+   regain a classical group while the negative control guarding it lives in
+   a different crate and never fires.
+2. **Replacing `aws-lc-rs` is one line inside the facade and no consumer
+   changes.** The same property that makes swapping in our own ML-KEM a
+   component change rather than a rewrite.
+
+⚠ **THE DIAGRAM ABOVE IS THE INTENDED SHAPE, NOT THE CURRENT STATE.**
+Neither `macula_quic` nor `macula-rust` has been migrated: both still
+select a provider themselves today, and `macula-rust` still selects `ring`.
+Those are follow-ups in those repositories and neither is done. Nothing
+here should be read as describing what is deployed.
 
 ## The boundary, precisely
 

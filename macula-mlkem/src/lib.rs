@@ -49,3 +49,5 @@
 //! makes the implementation testable against them at all; an API that
 //! only ever drew its own randomness could not be checked byte-exactly
 //! against anything.
+
+pub mod poly;
