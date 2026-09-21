@@ -1,22 +1,21 @@
-//! What this crate actually contains is the ORDERING, the LENGTHS, the
-//! SPLITTING and the SECRET CONCATENATION. These tests cover that and
-//! nothing else: the ECDH and ML-KEM primitives are `aws-lc-rs`'s and are
-//! not under test here.
+//! The ORDERING, the LENGTHS, the SPLITTING and the SECRET CONCATENATION,
+//! and, since the swap onto `macula-mlkem`, our ML-KEM-768 inside a real
+//! hybrid.
 //!
 //! ⚠ THE VERIFICATION IS DIFFERENTIAL, NOT VECTOR-BACKED.
 //! `draft-ietf-tls-ecdhe-mlkem-05` publishes no test vectors and
-//! references none. So the composition is instantiated at P-256/ML-KEM-768
-//! and exchanged against rustls's `SECP256R1MLKEM768`, an independently
-//! written implementation of the same draft, in BOTH directions. That is
-//! this crate checked against a third party's, not two of this author's
-//! agreeing with each other.
+//! references none. So `SecP256r1MLKEM768` is exchanged against rustls's
+//! `SECP256R1MLKEM768`, an independently written implementation of the
+//! same draft on `aws-lc-rs`'s ML-KEM, in BOTH directions. An exchange
+//! completes only if this crate's composition and our ML-KEM-768 both
+//! agree with theirs.
 //!
-//! ⚠ `SecP384r1MLKEM1024` HAS NO THIRD PARTY TO DIFFER AGAINST. Its tests
-//! below assert structure and self-consistency only. What it inherits is
-//! composition logic verified at the other instantiation, differing only
-//! in components and three lengths. That is the honest limit.
+//! ⚠ `SecP384r1MLKEM1024` HAS NO INDEPENDENT RUST IMPLEMENTATION TO DIFFER
+//! AGAINST. Its tests here assert structure and self-consistency. Its
+//! ML-KEM-1024 half is exchanged against `aws-lc-rs`'s in the crate's unit
+//! tests; its composition is the one verified at 768.
 
-use macula_pq_kx::{SECP256R1MLKEM768_FOR_DIFFERENTIAL_TESTING as MINE, SECP384R1MLKEM1024};
+use macula_pq_kx::{SECP256R1MLKEM768 as MINE, SECP384R1MLKEM1024};
 use rustls::crypto::aws_lc_rs::kx_group::SECP256R1MLKEM768 as THEIRS;
 use rustls::NamedGroup;
 

@@ -147,6 +147,7 @@ name = "macula-pq-kx"
 version = "0.1.0"
 dependencies = [
  "aws-lc-rs",
+ "macula-mlkem",
  "rustls",
 ]
 

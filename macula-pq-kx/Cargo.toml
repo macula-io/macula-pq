@@ -10,6 +10,7 @@ publish = false
 # built on was MEASURED against these exact versions; a silent minor bump
 # would move the ground the measurements stand on.
 [dependencies]
+macula-mlkem = { path = "../macula-mlkem" }
 rustls = { version = "=0.23.43", default-features = false, features = ["aws-lc-rs", "std"] }
 
 [dev-dependencies]

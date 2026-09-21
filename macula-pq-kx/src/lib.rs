@@ -1,71 +1,64 @@
-//! `SecP384r1MLKEM1024` hybrid key exchange for rustls.
+//! `SecP384r1MLKEM1024` and `SecP256r1MLKEM768` hybrid key exchange for
+//! rustls, on our own ML-KEM.
 //!
 //! # Why this crate exists
 //!
 //! `SecP384r1MLKEM1024` is the key exchange group macula's `pq_hybrid`
-//! profile declares, and **nobody supplies it**: not `ring`, not
-//! `aws-lc-rs`, not rustls itself. BSI TR-02102-2 states it *intends to
-//! recommend* the group once the corresponding RFC is adopted, and until
-//! then no provider implements it. So the profile's declaration is
-//! aspirational rather than true, and this crate is what makes it true.
+//! profile declares, and **no rustls provider supplies it**: not `ring`,
+//! not `aws-lc-rs`, not rustls itself. BSI TR-02102-2 states it *intends
+//! to recommend* the group once the corresponding RFC is adopted.
+//!
+//! OTP's own `ssl` does offer it, from OTP 28.4. That does not help,
+//! because **macula's transport is QUIC through a Rust NIF, and OTP's
+//! `ssl` does not do QUIC**: the TLS inside macula's QUIC is rustls, so it
+//! needs a rustls provider.
 //!
 //! # Why rustls and aws-lc-rs are here at all
 //!
-//! The intent is to implement the post-quantum parts ourselves rather
-//! than depend on external suppliers for them. These two dependencies are
-//! not a contradiction of that, because they are different layers:
+//! - **rustls and quinn are the ENVELOPE**: record layers, handshake state
+//!   machines, key schedules. That is protocol engineering, not
+//!   cryptography, and there is no reason to own it.
+//! - **aws-lc-rs supplies the elliptic-curve half**, P-256 and P-384 ECDH.
+//!   The ML-KEM half is `macula-mlkem`'s.
 //!
-//! - **rustls and quinn are the ENVELOPE.** They are TLS and QUIC
-//!   protocol: record layers, handshake state machines, key schedules.
-//!   That is protocol engineering, not cryptography, and there is no
-//!   reason to own it.
-//! - **aws-lc-rs is the MATHS**, and it is the part we intend to replace.
-//!
-//! This crate is deliberately **generic over its ML-KEM component**. It
-//! holds a `&'static dyn SupportedKxGroup` for the post-quantum half and
-//! calls it through the trait, never reaching for a concrete algorithm.
-//! So replacing aws-lc-rs's ML-KEM-1024 with our own is **a component
-//! substitution, not a rewrite of this file**: the ordering, the lengths,
-//! the splitting and the secret concatenation, which is everything this
-//! crate actually contains, are unchanged by that swap.
-//!
-//! The same is true of the P-384 half.
+//! Each hybrid holds its two halves as `&'static dyn SupportedKxGroup` and
+//! calls them only through the trait. That is why moving the ML-KEM half
+//! from `aws-lc-rs`'s to ours changed two lines of this file and none of
+//! what it actually contains: the ordering, the lengths, the splitting and
+//! the secret concatenation.
 //!
 //! # What is and is not invented here
 //!
-//! **No cryptography is invented.** This is a composition: a P-384 ECDH
-//! share concatenated with an ML-KEM-1024 share, and the two shared
-//! secrets concatenated, exactly as
+//! **No cryptography is invented.** This is a composition: an ECDH share
+//! concatenated with an ML-KEM share, and the two shared secrets
+//! concatenated, exactly as
 //! [draft-ietf-tls-ecdhe-mlkem](https://datatracker.ietf.org/doc/html/draft-ietf-tls-ecdhe-mlkem-05)
-//! specifies. Both primitives come from `aws-lc-rs` through rustls.
-//!
-//! What this crate contains, and therefore what its tests must cover, is
-//! the **ordering, the lengths, the splitting and the secret
-//! concatenation**.
+//! specifies. ML-KEM is verified against NIST's vectors in `macula-mlkem`.
 //!
 //! # ⚠ How this is verified, stated precisely
 //!
-//! **The verification is DIFFERENTIAL, not vector-backed.**
+//! **Differentially, not against vectors.** `draft-ietf-tls-ecdhe-mlkem-05`
+//! contains no test vectors and references none.
 //!
-//! `draft-ietf-tls-ecdhe-mlkem-05` contains **no test vectors** and
-//! references none, so there is nothing authoritative to assert the
-//! composition against. NIST's ACVP/FIPS 203 KATs for ML-KEM-1024 and
-//! CAVP vectors for P-384 exist, but they test **`aws-lc-rs`'s code, not
-//! this crate's**, and must never be cited as if they validated what is
-//! here.
-//!
-//! Instead, the composition is written generically and instantiated at
-//! P-256/ML-KEM-768, where rustls ships `SECP256R1MLKEM768`, an
-//! **independently written implementation of the same draft**. The tests
-//! run a real key exchange in both directions between this crate and
-//! rustls's group and require the derived secrets to agree. That is one
-//! implementation checked against a third party's, not two of this
-//! author's agreeing.
-//!
-//! **The `SecP384r1MLKEM1024` instantiation has no third party to differ
-//! against.** What it inherits is composition logic verified at the other
-//! instantiation, differing only in the component algorithms and three
-//! lengths. That is the honest limit of the claim.
+//! - **`SecP256r1MLKEM768`** is exchanged in both directions against
+//!   rustls's `SECP256R1MLKEM768`, an independently written implementation
+//!   of the same draft running `aws-lc-rs`'s ML-KEM. One exchange checks
+//!   two things at once: it completes only if this crate's composition AND
+//!   our ML-KEM-768 both agree with the third party's.
+//! - **Our ML-KEM-768 and ML-KEM-1024**, on their own, are exchanged in
+//!   both directions against `aws-lc-rs`'s (`ml_kem.rs`).
+//! - **`SecP384r1MLKEM1024`** is exchanged in both directions against the
+//!   same composition on `aws-lc-rs`'s ML-KEM-1024. That checks our
+//!   ML-KEM-1024 inside the full hybrid. It cannot check the composition,
+//!   because both sides use this crate's. **No independent Rust
+//!   implementation of this group exists to exchange with.** Its
+//!   composition is the one verified at 768, differing in components and
+//!   three lengths. OTP's `ssl` implements the group, and nothing here has
+//!   been exchanged against it.
+//! - **Which ML-KEM each hybrid holds is asserted by identity**
+//!   (`both_hybrids_carry_our_ml_kem`): ours and `aws-lc-rs`'s have the
+//!   same names and lengths and agree on every exchange, so no behaviour
+//!   can tell them apart.
 //!
 //! # ⚠ What this does NOT provide
 //!
@@ -75,7 +68,7 @@
 //! share shorter than the classical component, which is a denial of
 //! service reachable by anyone who can send a key share. The guard is
 //! what makes the function total. Mutation-verified: removing it makes
-//! `a_truncated_share_is_refused` panic at `split`.
+//! `a_short_client_share_is_refused_and_never_panics` panic at `split`.
 //!
 //! Length validation is layered. The guard here is exact on the
 //! client-share path, where the expected ML-KEM encapsulation key length
@@ -84,15 +77,16 @@
 //! so ML-KEM validates the ciphertext's own length in `complete`; the
 //! bounds check here still makes that path total.
 //!
-//! **Correctness, not side-channel resistance.** Nothing here is claimed
-//! to be constant-time. The combination step is precisely where a
-//! secret-dependent branch would hide: it copies and concatenates shared
-//! secret bytes. The component implementations are `aws-lc-rs`'s and carry
-//! their own properties; the composition in this file has had no timing
-//! analysis and no evaluation. Do not describe it as constant-time or
-//! side-channel resistant.
+//! **Timing is measured for ML-KEM, not for the composition.** ML-KEM is
+//! timed in `macula-mlkem` (no leak detected; see its docs for what that
+//! means). The ECDH halves are `aws-lc-rs`'s and carry its properties. The
+//! composition in this file copies and concatenates shared secret bytes,
+//! which is exactly where a secret-dependent branch would hide, and it has
+//! had no timing analysis. Do not describe it as constant-time.
 
 #![forbid(unsafe_code)]
+
+mod ml_kem;
 
 use std::boxed::Box;
 use std::vec::Vec;
@@ -106,9 +100,11 @@ use rustls::{Error, NamedGroup, PeerMisbehaved, ProtocolVersion};
 /// rustls 0.23.43's `NamedGroup` has no variant for this group, so it is
 /// named by its ordinal. `NamedGroup::Unknown` round-trips through `u16`,
 /// which `named_group_round_trips` asserts rather than assumes.
-pub static SECP384R1MLKEM1024: &dyn SupportedKxGroup = &Hybrid {
+pub static SECP384R1MLKEM1024: &dyn SupportedKxGroup = &SECP384R1MLKEM1024_HYBRID;
+
+static SECP384R1MLKEM1024_HYBRID: Hybrid = Hybrid {
     classical: rustls::crypto::aws_lc_rs::kx_group::SECP384R1,
-    post_quantum: rustls::crypto::aws_lc_rs::kx_group::MLKEM1024,
+    post_quantum: ml_kem::ML_KEM_1024,
     name: NamedGroup::Unknown(0x11ED),
     // ⚠ FALSE, and this is the single most important line in the crate.
     //
@@ -119,14 +115,13 @@ pub static SECP384R1MLKEM1024: &dyn SupportedKxGroup = &Hybrid {
     post_quantum_first: false,
 };
 
-/// The same composition at P-256/ML-KEM-768, which rustls also ships as
-/// `SECP256R1MLKEM768`. It exists so the tests can run this crate's
-/// composition against an independently written one.
-///
-/// It is not intended for use: prefer rustls's own group.
-pub static SECP256R1MLKEM768_FOR_DIFFERENTIAL_TESTING: &dyn SupportedKxGroup = &Hybrid {
+/// `SecP256r1MLKEM768`, code point `0x11EB`: the same composition at
+/// P-256/ML-KEM-768.
+pub static SECP256R1MLKEM768: &dyn SupportedKxGroup = &SECP256R1MLKEM768_HYBRID;
+
+static SECP256R1MLKEM768_HYBRID: Hybrid = Hybrid {
     classical: rustls::crypto::aws_lc_rs::kx_group::SECP256R1,
-    post_quantum: rustls::crypto::aws_lc_rs::kx_group::MLKEM768,
+    post_quantum: ml_kem::ML_KEM_768,
     name: NamedGroup::secp256r1MLKEM768,
     post_quantum_first: false,
 };
@@ -335,5 +330,55 @@ impl ActiveKeyExchange for ActiveHybrid {
 
     fn group(&self) -> NamedGroup {
         self.name
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use rustls::crypto::SupportedKxGroup;
+    use rustls::NamedGroup;
+
+    use super::{ml_kem, Hybrid, SECP256R1MLKEM768_HYBRID, SECP384R1MLKEM1024_HYBRID};
+
+    /// ⛔ THE SWAP, ASSERTED BY IDENTITY. `aws-lc-rs`'s ML-KEM groups have
+    /// the same names as ours, the same lengths, and agree with ours on
+    /// every exchange, so no behavioural test can tell which one a hybrid
+    /// holds. This compares the objects themselves.
+    #[test]
+    fn both_hybrids_carry_our_ml_kem() {
+        assert!(
+            std::ptr::addr_eq(SECP384R1MLKEM1024_HYBRID.post_quantum, ml_kem::ML_KEM_1024),
+            "SecP384r1MLKEM1024's ML-KEM half is not macula-mlkem's"
+        );
+        assert!(
+            std::ptr::addr_eq(SECP256R1MLKEM768_HYBRID.post_quantum, ml_kem::ML_KEM_768),
+            "SecP256r1MLKEM768's ML-KEM half is not macula-mlkem's"
+        );
+    }
+
+    /// This crate's composition with `aws-lc-rs`'s ML-KEM-1024 in place of
+    /// ours: `SecP384r1MLKEM1024` as it was before the swap. Test-only.
+    static SECP384R1MLKEM1024_ON_AWS_LC_RS: Hybrid = Hybrid {
+        classical: rustls::crypto::aws_lc_rs::kx_group::SECP384R1,
+        post_quantum: rustls::crypto::aws_lc_rs::kx_group::MLKEM1024,
+        name: NamedGroup::Unknown(0x11ED),
+        post_quantum_first: false,
+    };
+
+    /// No independent Rust implementation of `SecP384r1MLKEM1024` exists,
+    /// so: ours against the same composition on `aws-lc-rs`'s ML-KEM-1024,
+    /// in both directions. The exchange completes only if the two ML-KEMs
+    /// agree inside the hybrid. It checks ML-KEM, not the composition,
+    /// which both sides share.
+    #[test]
+    fn secp384r1mlkem1024_agrees_with_itself_on_aws_lc_rs_ml_kem() {
+        let ours: &dyn SupportedKxGroup = &SECP384R1MLKEM1024_HYBRID;
+        let theirs: &dyn SupportedKxGroup = &SECP384R1MLKEM1024_ON_AWS_LC_RS;
+        for (client_side, server_side) in [(ours, theirs), (theirs, ours)] {
+            let client = client_side.start().unwrap();
+            let server = server_side.start_and_complete(client.pub_key()).unwrap();
+            let secret = client.complete(&server.pub_key).unwrap();
+            assert_eq!(secret.secret_bytes(), server.secret.secret_bytes());
+        }
     }
 }

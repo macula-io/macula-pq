@@ -28,8 +28,8 @@
 > checks included, draws its seeds from the OS, and has been timed at
 > ML-KEM-768 and -1024: no leak detected (see [What is not
 > claimed](#what-is-not-claimed) for exactly what that means). It wipes
-> its secrets when they are dropped, measured on the heap. `macula-pq-kx`
-> does not use it yet.
+> its secrets when they are dropped, measured on the heap, and both of
+> `macula-pq-kx`'s hybrids run on it.
 > **`macula-pq`, the facade, is a stub.** Every crate carries `publish =
 > false` and nothing has been released. See [Status](#status) for what is
 > done and what is not.
@@ -52,8 +52,11 @@ a claim about **independence and assurance**, not about being first or
 better.
 
 **Why it exists.** Macula's `pq_hybrid` profile declares
-`SecP384r1MLKEM1024`, and until this workspace no implementation of that
-group existed to make the declaration true. Building the primitives here
+`SecP384r1MLKEM1024`, and no rustls provider implements it. OTP's own
+`ssl` does, from OTP 28.4, but **macula's transport is QUIC through a
+Rust NIF, and OTP's `ssl` does not do QUIC**: the TLS inside it is
+rustls, so the group has to exist as a rustls provider. Building the
+primitives here
 rather than depending on them also means the post-quantum parts of
 [Macula](https://github.com/macula-io/macula) are not supplied by an
 external library, which is the reason for the boundary described below.
@@ -76,7 +79,7 @@ load-bearing:**
 
     macula-keccak   zeroize only
     macula-mlkem    keccak + OS randomness + zeroize    no rustls
-    macula-pq-kx    rustls + aws-lc-rs           macula-mlkem not yet wired in
+    macula-pq-kx    mlkem + rustls + aws-lc-rs
     macula-pq       facade
 
 Collapse that and anyone wanting ML-KEM is forced to take rustls and
@@ -87,9 +90,10 @@ crate.
 ### `SecP384r1MLKEM1024`, and why it had to be written
 
 It is the key exchange group macula's `pq_hybrid` profile declares, and
-**no provider supplies it**. BSI TR-02102-2 states it *intends to
-recommend* the group once the corresponding RFC is adopted. Until this
-workspace, that profile's declaration was aspirational.
+**no rustls provider supplies it**. BSI TR-02102-2 states it *intends to
+recommend* the group once the corresponding RFC is adopted. OTP's `ssl`
+implements it, but macula's QUIC runs on rustls, so until this workspace
+the profile's declaration could not be true on macula's transport.
 
 ## Features
 
@@ -114,7 +118,7 @@ workspace, that profile's declaration was aspirational.
 |---|---|
 | **Ours** | Keccak (**inside ML-KEM only**), ML-KEM, the hybrid composition |
 | **The platform** | The OS CSPRNG |
-| **`aws-lc-rs`** | AES-GCM, ChaCha20-Poly1305, SHA-2, HKDF, P-384, X25519, ECDSA/RSA/Ed25519 verification |
+| **`aws-lc-rs`** | AES-GCM, ChaCha20-Poly1305, SHA-2, HKDF, P-256 and P-384 ECDH, ECDSA/RSA/Ed25519 verification |
 
 **The rule is that `aws-lc-rs` supplies no post-quantum primitive.**
 Everything left to it is either quantum-safe already or paired with ML-KEM
@@ -253,6 +257,10 @@ Where no vectors exist, the claim is stated as what it is.
 `macula-pq-kx`'s hybrid composition has none published, so it is verified
 **differentially** against rustls's independently written implementation of
 the same draft, and its documentation says so rather than implying more.
+That exchange runs `SecP256r1MLKEM768` on our ML-KEM against rustls's on
+`aws-lc-rs`'s, so it checks our ML-KEM-768 on the wire as well as the
+composition. It passed before the ML-KEM half was moved onto
+`macula-mlkem` and after.
 
 ## Status
 
@@ -260,8 +268,9 @@ the same draft, and its documentation says so rather than implying more.
 
 - `macula-keccak`: SHA3-256/512, SHAKE128/256, incremental SHAKE128
   reader; ACVP AFT, VOT and MCT vectors, plus FIPS 202 known answers.
-- `macula-pq-kx`: `SecP384r1MLKEM1024`, verified differentially against
-  rustls's `SECP256R1MLKEM768`.
+- `macula-pq-kx`: `SecP384r1MLKEM1024` and `SecP256r1MLKEM768`, both on
+  `macula-mlkem`, verified differentially against rustls's
+  `SECP256R1MLKEM768` and against `aws-lc-rs`'s ML-KEM-768 and -1024.
 - `macula-mlkem`: key generation, encapsulation, decapsulation with
   implicit rejection, and both key checks, at ML-KEM-512, -768 and -1024.
   Every ACVP vector passes byte-exact. Key generation and encapsulation
@@ -276,8 +285,6 @@ the same draft, and its documentation says so rather than implying more.
 
 **Not done**
 
-- `macula-pq-kx` onto `macula-mlkem`. Its ML-KEM-1024 comes from
-  `aws-lc-rs`, through rustls.
 - `macula-pq`: `provider()` is a `todo!()`.
 - Migrating `macula_quic` and `macula-rust` onto the facade.
 - Nothing is published; every crate carries `publish = false`.
@@ -302,7 +309,8 @@ count is fixed, the rotation offsets are compile-time constants and the
 round constants are indexed by round number. **That is an argument, not a
 measurement.**
 
-`macula-pq-kx` has not been timed. Both its halves come from `aws-lc-rs`.
+`macula-pq-kx`'s composition has not been timed. Its ML-KEM half is
+`macula-mlkem`, timed as above; its ECDH half is `aws-lc-rs`'s.
 
 **Wiping is measured on the heap only.** Values on the stack are wiped by
 construction, which safe code cannot observe, and copies the compiler
