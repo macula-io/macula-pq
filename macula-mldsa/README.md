@@ -1,10 +1,10 @@
 # macula-mldsa
 
-ML-DSA (FIPS 204), the post-quantum signature standard, being written
-from scratch on `macula-keccak`.
+ML-DSA (FIPS 204), the post-quantum signature standard, written from
+scratch on `macula-keccak`.
 
-⚠ **Not released yet, and nothing uses it.** Publishing it is still to be
-decided. At ML-DSA-44, -65 and -87:
+**Depend on this crate for ML-DSA signatures.** It brings no TLS. At
+ML-DSA-44, -65 and -87:
 
 - **Key generation**: `key_gen` draws its seed from the OS and returns the
   expanded private key; `key_gen_seed` returns the 32-byte seed instead,
@@ -29,9 +29,13 @@ decided. At ML-DSA-44, -65 and -87:
   the seed, `rho'`, `K`, the private key's secret bytes, `rnd` and `rho''`,
   and none survives. The working secrets live in wiped stack arrays, which
   that scan cannot see.
-- **Randomness**: `key_gen` and `sign` draw from the OS. Tests show no
-  two keys and no two signatures on one message are the same, and that
-  the drawn bytes are the hedge.
+- **Randomness**: `key_gen`, `key_gen_seed` and `sign` draw from the OS.
+  Tests show no two keys and no two signatures on one message are the
+  same, and that the drawn bytes are the seed and the hedge.
+- **Interop with OTP's `crypto`**, the ML-DSA macula's existing node keys
+  were made with: public keys derived from one private key match on both
+  sides, and each side's signatures verify on the other, with keys
+  expanded and as seeds (`scripts/otp-interop.sh`).
 - **Timing**: signing is measured at ML-DSA-87 and -65 with a calibrated
   harness, against what FIPS 204 lets it vary with: no difference
   detected between secret keys, among inputs signing in one attempt. That
@@ -40,16 +44,17 @@ decided. At ML-DSA-44, -65 and -87:
 
 ML-DSA is not special here. FIPS 204 has several good implementations,
 OTP's `crypto` and `aws-lc-rs` among them. This one exists so the
-workspace owns its maths end to end on one Keccak, and it will be
-verified byte-exact against NIST's vectors before it is called done.
+workspace owns its maths end to end on one Keccak, verified byte-exact
+against NIST's own vectors, and so it takes a context string and a seed,
+which OTP's cannot.
 
 **Pure ML-DSA only.** HashML-DSA (FIPS 204 section 5.4) signs a
 pre-computed hash and would bring SHA-2, which this workspace does not
 own. When the tests run NIST's vectors, the HashML-DSA ones are
 excluded by count, beside that reason.
 
-**Depend on [`macula-pqc`](https://crates.io/crates/macula-pqc), not on
-this crate.**
+For TLS key exchange, depend on
+[`macula-pqc`](https://crates.io/crates/macula-pqc) instead.
 
 ## License
 

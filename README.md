@@ -21,9 +21,9 @@
 
 ---
 
-> **Status, 2026-09-22:** early. 0.1.1 is the first release under the name
-> `macula-pqc`; 0.1.0 was released as `macula-pq`, since deleted from
-> crates.io.
+> **Status, 2026-09-22:** early. 0.1.2 adds `macula-mldsa`, ML-DSA
+> signatures. 0.1.1 was the first release under the name `macula-pqc`;
+> 0.1.0 was released as `macula-pq`, since deleted from crates.io.
 > **`macula-pqc` hands out rustls configuration builders locked to
 > `SecP384r1MLKEM1024` then `SecP256r1MLKEM768`, both on this project's
 > own ML-KEM, and nothing classical.** No rustls provider offers
@@ -36,7 +36,9 @@
 > SHAKE128/256, including the Monte Carlo chains. `macula_quic` and
 > `macula-rust` key-exchange through `macula-pqc` 0.1 on their default
 > branches, and neither has released that yet.
-> `macula-mldsa`, ML-DSA, is being built. See [Status](#status).
+> **`macula-mldsa` passes every pure NIST ACVP vector for ML-DSA-44, -65
+> and -87**, signs hedged from the OS with keys expanded or as seeds, and
+> agrees with OTP's `crypto`. See [Status](#status).
 
 ## What is this?
 
@@ -105,18 +107,20 @@ example.
 
 ## The crates
 
-**Depend on `macula-pqc`.** The others are implementation crates. They
-are published only because cargo refuses to publish a crate whose path
-dependencies are not themselves on the registry, and they are not
-advertised as entry points: nothing in this stack needs SHA-3 outside
-ML-KEM and ML-DSA, since TLS uses SHA-2.
+**Depend on `macula-pqc` for TLS key exchange, and on `macula-mldsa` for
+ML-DSA signatures.** `macula-mldsa` is its own entry point on purpose: it
+brings no TLS, so a signer does not take rustls and `aws-lc-rs` with it.
+The others are implementation crates, published only because cargo
+refuses to publish a crate whose path dependencies are not themselves on
+the registry, and not advertised as entry points: nothing in this stack
+needs SHA-3 outside ML-KEM and ML-DSA, since TLS uses SHA-2.
 
 | Crate | What it is | State |
 |---|---|---|
 | **`macula-pqc`** | **The facade. This is what you depend on.** | `client_builder()` / `server_builder()`: locked to our two hybrids, nothing classical; used by `macula_quic` and `macula-rust` on their default branches, in neither's release yet |
 | `macula-keccak` | Keccak-f[1600], SHA3-256/512, SHAKE128/256 | complete, NIST ACVP vectors passing |
 | `macula-mlkem` | ML-KEM (FIPS 203) | complete: NIST ACVP vectors passing, seeds from the OS, secrets wiped, timed |
-| `macula-mldsa` | ML-DSA (FIPS 204), signatures | complete, not yet released, used by nothing: key generation, signing (both key formats) and verification pass NIST's vectors at all three parameter sets; signing timed, secrets wiped, seeds from the OS |
+| **`macula-mldsa`** | **ML-DSA (FIPS 204) signatures: depend on this to sign or verify.** | complete: key generation, signing (both key formats) and verification pass NIST's vectors at all three parameter sets; signing timed, secrets wiped, seeds from the OS, agrees with OTP; nothing uses it yet |
 | `macula-pqc-kx` | Hybrid TLS key exchange groups, including `SecP384r1MLKEM1024` | complete |
 
 ⛔ **These are separate crates rather than one with modules because the
@@ -420,18 +424,18 @@ counterpart; it is checked against OTP's `ssl`, outside the gate (see
 - Released to crates.io as 0.1.0, under the names of the time:
   `macula-pq`, `macula-pq-kx`, `macula-mlkem` and `macula-keccak`, from
   one tag; and as 0.1.1 under the new names, `macula-pqc` and
-  `macula-pqc-kx`, with `macula-mldsa` withheld. `macula-pq` and
-  `macula-pq-kx` have since been deleted from crates.io. See
-  [CHANGELOG.md](CHANGELOG.md).
+  `macula-pqc-kx`, with `macula-mldsa` withheld; 0.1.2 releases
+  `macula-mldsa`. `macula-pq` and `macula-pq-kx` have since been deleted
+  from crates.io. See [CHANGELOG.md](CHANGELOG.md).
 
 - `macula_quic` (in `macula`) and `macula-rust` key-exchange through
   `macula-pqc` 0.1 on their default branches; neither has released it.
 
 **Not done**
 
-- `macula-mldsa`: ML-DSA, the signature half, is complete: NIST's vectors,
-  signing timed, the heap scanned for secrets, randomness from the OS.
-  Releasing it is still to be decided, and nothing uses it yet.
+- Moving macula's signatures, UCAN and DID included, onto `macula-mldsa`,
+  per its plan's D7 as amended on 2026-09-22, and the EU hybrid onto the
+  LAMPS composite.
 
 ## Releasing
 

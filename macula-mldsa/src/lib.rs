@@ -19,8 +19,7 @@
 //! Signing is timed (see `examples/signing_timing.rs`), the heap is
 //! scanned for secrets after every operation (`tests/heap_residue.rs`),
 //! and [`key_gen`] and [`sign`] are tested to draw from the OS.
-//!
-//! ⚠ **Not released yet**: publishing it is still to be decided.
+
 //!
 //! # Scope: pure ML-DSA
 //!

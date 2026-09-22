@@ -9,7 +9,11 @@ withheld from a release, and its section says so. Format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Pre-1.0: a minor
 version may include a breaking change where that was the right call.
 
-## [Unreleased]
+## [0.1.2] - 2026-09-22
+
+The first release of `macula-mldsa`, ML-DSA (FIPS 204), which macula's
+plan now uses for every ML-DSA signature in the stack. It is the crate to
+depend on for signatures; `macula-pqc` stays the one for TLS key exchange.
 
 ### The old names are gone
 
@@ -17,7 +21,14 @@ version may include a breaking change where that was the right call.
   both consumers, `macula_quic` and `macula-rust`, moved to `macula-pqc`
   0.1 on their default branches.
 
-### `macula-mldsa` (still withheld)
+### `macula-mldsa`, released
+
+- Key generation, signing and verification, FIPS 204 Algorithms 1 to 3,
+  at ML-DSA-44, -65 and -87: NIST's keyGen (75), sigGen and sigGen-tr1
+  (810) and sigVer (135) vectors pass byte-exact, HashML-DSA excluded by
+  count with its reason. Signing is hedged from the OS; a private key is
+  used expanded or as its 32-byte seed. Signing is timed, the heap is
+  scanned for secrets, and it agrees with OTP's `crypto`.
 
 - `key_gen_seed` generates a key kept as its 32-byte seed, drawn from the
   OS, the form RFC 9964's `AKP` key stores and macula's amended D6 keeps.
