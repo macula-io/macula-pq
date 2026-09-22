@@ -337,9 +337,10 @@ counterpart; it is checked against OTP's `ssl`, outside the gate (see
   Releasing is a `vX.Y.Z` tag:
   [`release-core.yml`](.github/workflows/release-core.yml)'s `verify` job
   checks all four are publishable at the tag's version, runs the gate and
-  a dry-run publish, then `publish` waits for approval in the `crates-io`
-  environment. The crates.io token belongs in that environment's secrets,
-  not the repository's, so nothing holding it runs before the approval.
+  a dry-run publish, then `publish` runs in the `crates-io` environment:
+  the tag is the release, with no approval step. That environment admits
+  only `v*.*.*` tags and holds the crates.io token, so nothing else can
+  read it.
 
 ## What is not claimed
 

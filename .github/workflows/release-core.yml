@@ -1,14 +1,17 @@
 name: Release to crates.io
 
-# Publishes all four crates from one pushed release tag, after a human
-# approves it.
+# Publishes all four crates from one pushed release tag. THE TAG IS THE
+# RELEASE: there is no approval step.
 #
 # - A pushed tag vX.Y.Z runs `verify`: every crate is publishable at the
 #   tag's version, the full gate passes, and a dry-run publish succeeds.
-#   Then `publish` waits in the `crates-io` environment until its required
-#   reviewer approves it. The crates.io token belongs in THAT ENVIRONMENT'S
-#   secrets, not the repository's: a repository secret is readable by any
-#   job in any workflow here, an environment secret only after approval.
+#   Then `publish` runs in the `crates-io` environment. That environment
+#   admits only `v*.*.*` tags and holds the crates.io token, so the token
+#   is readable by this job on a release tag and by nothing else: not a
+#   branch run, not another workflow.
+# - Who can publish is therefore who can push a `v*` tag. Today that is
+#   the repository's only account. Grant anyone else write access and add
+#   a tag ruleset restricting `v*` creation, or the tag stops being a gate.
 # - A manual dispatch is a dry run: it runs `verify` for the given tag and
 #   never publishes. GitHub only dispatches a workflow that is on the
 #   default branch.
