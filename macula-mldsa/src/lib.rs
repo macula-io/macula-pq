@@ -15,7 +15,9 @@
 //! randomness from the OS; a private key is used either expanded or as its
 //! 32-byte seed ([`PrivateKey`]).
 //!
-//! ⚠ **Not released yet**: signing's timing has not been measured.
+//! ⚠ **Not released yet.** Signing is timed (see `examples/signing_timing.rs`);
+//! the tests that its secrets leave no heap residue and that [`sign`]
+//! draws from the OS are not written yet.
 //!
 //! # Scope: pure ML-DSA
 //!

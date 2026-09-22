@@ -3,8 +3,9 @@
 ML-DSA (FIPS 204), the post-quantum signature standard, being written
 from scratch on `macula-keccak`.
 
-⚠ **Not released, and nothing uses it yet: signing's timing has not been
-measured.** At ML-DSA-44, -65 and -87:
+⚠ **Not released, and nothing uses it yet.** The tests that its secrets
+leave no heap residue and that `sign` draws from the OS come first. At
+ML-DSA-44, -65 and -87:
 
 - **Key generation**: `key_gen` draws its seed from the OS, and FIPS 204's
   key generation passes all 75 of NIST's keyGen vectors byte-exact, with
@@ -21,6 +22,11 @@ measured.** At ML-DSA-44, -65 and -87:
   pass byte-exact: deterministic and hedged, both key formats, every
   interface. Deterministic signing exists only behind the testing-only
   `internal` feature. Every secret and every rejected attempt is wiped.
+- **Timing**: signing is measured at ML-DSA-87 and -65 with a calibrated
+  harness, against what FIPS 204 lets it vary with: no difference
+  detected between secret keys, among inputs signing in one attempt. That
+  is not a proof; see the
+  [project README](https://github.com/macula-io/macula-pqc#what-is-not-claimed).
 
 ML-DSA is not special here. FIPS 204 has several good implementations,
 OTP's `crypto` and `aws-lc-rs` among them. This one exists so the

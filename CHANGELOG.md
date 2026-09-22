@@ -30,7 +30,11 @@ version may include a breaking change where that was the right call.
 - Signing: `sign` (FIPS 204 Algorithm 2) is hedged from the OS and takes
   a `PrivateKey`, expanded or its 32-byte seed. All 810 pure sigGen and
   sigGen-tr1 cases pass byte-exact. Deterministic signing is testing-only.
-  Signing's timing is not yet measured.
+- Signing timed (`examples/signing_timing.rs`, run by `scripts/timing.sh`) at
+  ML-DSA-87 and -65, fixed against random secret polynomials among inputs
+  signing in one attempt: no difference detected, both controls behaving.
+  The harness found one difference first: `HintBitPack` branched on each
+  hint bit, flagged at |t| 9.73 and 15.15; it is now branch-free.
 
 ### `macula-keccak`
 

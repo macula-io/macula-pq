@@ -209,6 +209,21 @@ pub fn sign_mu(
     rnd: &[u8; 32],
 ) -> Result<Vec<u8>, Error> {
     with_expanded(p, sk, |sk| {
+        sign_given_mu(p, sk, mu, rnd, p.gamma1 - p.beta()).0
+    })
+}
+
+/// [`sign_mu`], also returning how many attempts the rejection loop made.
+/// FIPS 204 lets signing time vary with that count and nothing secret, so
+/// the timing harness needs it to compare like with like.
+#[cfg(feature = "internal")]
+pub fn sign_mu_counting_attempts(
+    p: ParameterSet,
+    sk: PrivateKey,
+    mu: &[u8; 64],
+    rnd: &[u8; 32],
+) -> Result<(Vec<u8>, u32), Error> {
+    with_expanded(p, sk, |sk| {
         sign_given_mu(p, sk, mu, rnd, p.gamma1 - p.beta())
     })
 }
@@ -263,7 +278,7 @@ fn sign_absorbing(
         absorb(&mut h);
         let mut mu = [0u8; 64];
         h.finalize_xof().read(&mut mu);
-        sign_given_mu(p, sk, &mu, rnd, p.gamma1 - p.beta())
+        sign_given_mu(p, sk, &mu, rnd, p.gamma1 - p.beta()).0
     })
 }
 
@@ -316,7 +331,7 @@ fn sign_given_mu(
     mu: &[u8; 64],
     rnd: &[u8; 32],
     z_bound: i32,
-) -> Vec<u8> {
+) -> (Vec<u8>, u32) {
     let mut s1 = Zeroizing::new([[0i32; N]; L_MAX]);
     let mut s2 = Zeroizing::new([[0i32; N]; K_MAX]);
     let mut t0 = Zeroizing::new([[0i32; N]; K_MAX]);
@@ -349,7 +364,9 @@ fn sign_given_mu(
     let mut ct0 = Zeroizing::new([[0i32; N]; K_MAX]);
     let mut hint = Zeroizing::new([[0i32; N]; K_MAX]);
     let mut kappa: u16 = 0;
+    let mut attempts = 0u32;
     loop {
+        attempts += 1;
         expand_mask(&mut y, &rho_pp, kappa, p);
         kappa = kappa.wrapping_add(p.l as u16);
 
@@ -416,7 +433,7 @@ fn sign_given_mu(
         if !hint_releasable(norm(&ct0, p.k), ones, p) {
             continue;
         }
-        return sig_encode(&c_tilde[..c_len], &z, &hint, p);
+        return (sig_encode(&c_tilde[..c_len], &z, &hint, p), attempts);
     }
 }
 
@@ -456,7 +473,7 @@ mod tests {
         for i in 0u32..400 {
             let message = i.to_le_bytes();
             let mu = mu_of(&pk, &message);
-            let sig = sign_given_mu(p, &sk, &mu, &[0u8; 32], p.gamma1);
+            let sig = sign_given_mu(p, &sk, &mu, &[0u8; 32], p.gamma1).0;
             let s = sig_decode(&sig, p).expect("a well-formed signature");
             if norm(&s.z, p.l) < p.gamma1 - p.beta() {
                 assert!(
@@ -497,7 +514,7 @@ mod tests {
         for i in 0u32..2000 {
             let message = i.to_le_bytes();
             let mu = mu_of(&pk, &message);
-            let sig = sign_given_mu(p, &sk, &mu, &[0u8; 32], p.gamma1 - p.beta());
+            let sig = sign_given_mu(p, &sk, &mu, &[0u8; 32], p.gamma1 - p.beta()).0;
             let y = sig.len() - (omega + k);
             let count = |i: usize| sig[y + omega + i] as usize;
             let Some(i) = (1..k).find(|&i| count(i) == count(i - 1) && count(i) > 0) else {

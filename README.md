@@ -116,7 +116,7 @@ ML-KEM and ML-DSA, since TLS uses SHA-2.
 | **`macula-pqc`** | **The facade. This is what you depend on.** | `client_builder()` / `server_builder()`: locked to our two hybrids, nothing classical; used by `macula_quic` and `macula-rust` on their default branches, in neither's release yet |
 | `macula-keccak` | Keccak-f[1600], SHA3-256/512, SHAKE128/256 | complete, NIST ACVP vectors passing |
 | `macula-mlkem` | ML-KEM (FIPS 203) | complete: NIST ACVP vectors passing, seeds from the OS, secrets wiped, timed |
-| `macula-mldsa` | ML-DSA (FIPS 204), signatures | not released, used by nothing: key generation, signing (both key formats) and verification pass NIST's vectors at all three parameter sets; signing's timing not measured yet |
+| `macula-mldsa` | ML-DSA (FIPS 204), signatures | not released, used by nothing: key generation, signing (both key formats) and verification pass NIST's vectors at all three parameter sets; signing timed at ML-DSA-87 and -65 |
 | `macula-pqc-kx` | Hybrid TLS key exchange groups, including `SecP384r1MLKEM1024` | complete |
 
 ⛔ **These are separate crates rather than one with modules because the
@@ -273,8 +273,9 @@ uses silently is worse than a documented one used twice.
 
 **Not part of the gate**: it takes minutes, and a shared CI runner is too
 noisy to time on. It times decapsulation and encapsulation at ML-KEM-768
-and ML-KEM-1024 in a release build, dudect-style, and each run checks
-itself before its results mean anything:
+and ML-KEM-1024, and signing at ML-DSA-87 and ML-DSA-65, in a release
+build, dudect-style, and each run checks itself before its results mean
+anything:
 
 - **Positive control**: a real decapsulation with an early-exit `==`
   planted after it. Not flagged, and the run exits 2.
@@ -286,6 +287,18 @@ constant-time compare replaced by `==` and a branch, the valid-against-
 invalid test flags it; with the real code it does not.
 [`examples/timing.rs`](macula-mlkem/examples/timing.rs) documents the
 method and the confounds the negative control exposed.
+
+**Signing is timed against what FIPS 204 lets it vary with.** Signing
+loops until an attempt passes, and may take as long as its attempts take;
+within one, the public `rho` and the published commitment hash drive
+their own sampling. So both classes share all of those, and every input
+signs in exactly one attempt: the classes differ only in the secret
+polynomials. Its positive control is a branch on the secret key's bytes,
+taken as often as a hint bit is set, because that is the shape of the one
+difference the harness found: `HintBitPack` branched on each hint bit,
+and was flagged until it was made branch-free (|t| 9.73 and 15.15 before,
+1.48 and 0.90 after, at 40,000 measurements).
+[`examples/signing_timing.rs`](macula-mldsa/examples/signing_timing.rs) documents both.
 
 ### Interop with OTP
 
@@ -370,7 +383,9 @@ counterpart; it is checked against OTP's `ssl`, outside the gate (see
   as FIPS 203 sections 3.3 and 6 require. Secrets are wiped when dropped,
   and none survives on the heap.
 - The timing harness, with a positive and a negative control.
-  ML-KEM-768 and -1024 measured: no leak detected.
+  ML-KEM-768 and -1024 measured: no leak detected. ML-DSA-87 and -65
+  signing measured against what FIPS 204 lets it vary with: no leak
+  detected, after `HintBitPack` was made branch-free.
 - `macula-pqc`: `client_builder()` and `server_builder()`, rustls builders
   with the provider and TLS 1.3 already fixed, so no caller can change the
   groups: `SecP384r1MLKEM1024` then `SecP256r1MLKEM768`, from
@@ -397,8 +412,9 @@ counterpart; it is checked against OTP's `ssl`, outside the gate (see
 **Not done**
 
 - `macula-mldsa`: ML-DSA, the signature half. Key generation, signing and
-  verification pass NIST's vectors; measuring signing's timing is next.
-  Nothing uses it and it is not released.
+  verification pass NIST's vectors, and signing is timed. Tests that its
+  secrets leave no heap residue and that `sign` draws from the OS come
+  before it is released. Nothing uses it yet.
 
 ## Releasing
 
@@ -431,8 +447,19 @@ random messages), with both controls behaving at both. **That is "no leak
 detected at that n, on that machine, with that compiler"**, not a proof.
 ML-KEM-512 has not been timed: nothing negotiates it.
 
-`macula-keccak` is measured only inside ML-KEM, where it hashes secret
-data. On its own it rests on an argument from the algorithm's shape: there
+`macula-mldsa`'s signing has been **measured** the same way, on the same
+machine and compiler, 40,000 measurements per test: no timing difference
+detected between fixed and random secret polynomials at ML-DSA-87 or
+ML-DSA-65, among inputs signing in one attempt, with both controls
+behaving at both. The number of attempts, and the sampling driven by
+public data, vary by design and were held fixed rather than measured.
+ML-DSA-44 shares ML-DSA-87's code paths and has not been timed. Key
+generation and verification have not been timed: verification handles
+only public data, and key generation's secret seed also sets the public
+`rho`.
+
+`macula-keccak` is measured only inside ML-KEM and ML-DSA, where it hashes
+secret data. On its own it rests on an argument from the algorithm's shape: there
 is no secret-dependent branch or table index to write, since the round
 count is fixed, the rotation offsets are compile-time constants and the
 round constants are indexed by round number. **That is an argument, not a

@@ -237,17 +237,28 @@ pub fn sk_decode(
 
 /// FIPS 204 Algorithm 20, `HintBitPack`, into `y` of `omega + k` bytes, for
 /// a hint of at most `omega` ones.
+///
+/// ⚠ NO BRANCH ON A HINT BIT. Every coefficient writes its position into
+/// a scratch slot and the bit only decides whether the index advances; the
+/// padding is masked arithmetically. The version that skipped the write
+/// for each zero bit was the one timing difference the signing harness
+/// found: the hint depends on the secret key, and at 40,000 measurements
+/// fixed-versus-random secrets were flagged at |t| 9.73 and 15.15 (see
+/// `examples/signing_timing.rs`). The hint is public, but a permitted difference
+/// of that size would hide a real one.
 pub fn hint_bit_pack(y: &mut [u8], h: &[Poly; K_MAX], p: ParameterSet) {
-    y.fill(0);
-    let mut index = 0;
+    let mut slots = [0u8; N + 1];
+    let mut index = 0usize;
     for (i, poly) in h.iter().enumerate().take(p.k) {
         for (j, &bit) in poly.iter().enumerate() {
-            if bit != 0 {
-                y[index] = j as u8;
-                index += 1;
-            }
+            slots[index] = j as u8;
+            index += bit as usize;
         }
         y[p.omega + i] = index as u8;
+    }
+    for (s, out) in y[..p.omega].iter_mut().enumerate() {
+        let keep = ((s as isize - index as isize) >> (isize::BITS - 1)) as u8;
+        *out = slots[s] & keep;
     }
 }
 
