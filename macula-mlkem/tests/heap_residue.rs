@@ -5,9 +5,10 @@
 //! noise polynomials, the secret key, shared secrets. A block that still
 //! holds one was freed without being wiped.
 //!
-//! ⚠ THIS FILE CONTAINS `unsafe`, AND IT IS THE ONLY FILE IN THE WORKSPACE
-//! THAT DOES. Scanning freed memory takes a global allocator, and one
-//! cannot be written without it. The crates themselves forbid unsafe code;
+//! ⚠ THIS FILE CONTAINS `unsafe`, as does macula-mldsa's heap_residue.rs,
+//! and they are the only two files in the workspace that do. Scanning
+//! freed memory takes a global allocator, and one cannot be written
+//! without it. The crates themselves forbid unsafe code;
 //! this is a test binary instrumenting them. Its allocator hands out zeroed
 //! memory, so every byte it later scans has been initialised.
 //!

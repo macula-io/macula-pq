@@ -15,9 +15,11 @@
 //! randomness from the OS; a private key is used either expanded or as its
 //! 32-byte seed ([`PrivateKey`]).
 //!
-//! ⚠ **Not released yet.** Signing is timed (see `examples/signing_timing.rs`);
-//! the tests that its secrets leave no heap residue and that [`sign`]
-//! draws from the OS are not written yet.
+//! Signing is timed (see `examples/signing_timing.rs`), the heap is
+//! scanned for secrets after every operation (`tests/heap_residue.rs`),
+//! and [`key_gen`] and [`sign`] are tested to draw from the OS.
+//!
+//! ⚠ **Not released yet**: publishing it is still to be decided.
 //!
 //! # Scope: pure ML-DSA
 //!
@@ -361,6 +363,50 @@ mod tests {
                 );
             }
         }
+    }
+
+    #[test]
+    fn a_failing_source_is_an_error_not_a_signature() {
+        let (_, sk) = internal::key_gen(ML_DSA_65, &[1; 32]);
+        let got = sign_drawing_from(ML_DSA_65, PrivateKey::Expanded(&sk), b"m", b"", |_| {
+            Err(Error::RandomnessUnavailable)
+        });
+        assert_eq!(got, Err(Error::RandomnessUnavailable));
+    }
+
+    /// Exactly one 32-byte `rnd` is drawn, and the signature is
+    /// Algorithm 2's with that `rnd`: the hedge is the draw, and the public
+    /// path adds nothing and drops nothing.
+    #[test]
+    fn the_signature_is_hedged_with_the_drawn_rnd() {
+        let (_, sk) = internal::key_gen(ML_DSA_65, &[1; 32]);
+        let key = PrivateKey::Expanded(&sk);
+        let mut drawn = Vec::new();
+        let sig = sign_drawing_from(ML_DSA_65, key, b"m", b"c", |buf| {
+            buf.fill(0xa5);
+            drawn.push(buf.len());
+            Ok(())
+        })
+        .unwrap();
+        assert_eq!(drawn, vec![32]);
+        let want = internal::sign_message(ML_DSA_65, key, b"m", b"c", &[0xa5; 32]).unwrap();
+        assert_eq!(sig, want);
+        let deterministic = internal::sign_message(ML_DSA_65, key, b"m", b"c", &[0; 32]).unwrap();
+        assert_ne!(sig, deterministic, "the drawn rnd was not used");
+    }
+
+    /// FIPS 204 Algorithm 2 checks the context before it draws anything.
+    #[test]
+    fn a_long_context_is_refused_before_anything_is_drawn() {
+        let (_, sk) = internal::key_gen(ML_DSA_65, &[1; 32]);
+        let got = sign_drawing_from(
+            ML_DSA_65,
+            PrivateKey::Expanded(&sk),
+            b"m",
+            &[0; 256],
+            |_| panic!("randomness was drawn for a context that is refused"),
+        );
+        assert_eq!(got, Err(Error::ContextTooLong));
     }
 
     #[test]

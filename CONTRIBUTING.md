@@ -42,7 +42,8 @@ say why in the commit message.
   `#![forbid(unsafe_code)]`.
 - **Secrets are wiped.** Anything secret is wrapped in `Zeroizing` where it
   is made, in a buffer allocated at its final size.
-  `macula-mlkem/tests/heap_residue.rs` checks the heap.
+  `tests/heap_residue.rs` in `macula-mlkem` and `macula-mldsa` checks the
+  heap.
 - **Timing is measured, not asserted.** A change to ML-KEM's arithmetic
   reruns `./scripts/timing.sh`; its positive control must be detected and
   its negative control must not be.

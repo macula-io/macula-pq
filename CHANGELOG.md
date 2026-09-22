@@ -35,6 +35,11 @@ version may include a breaking change where that was the right call.
   signing in one attempt: no difference detected, both controls behaving.
   The harness found one difference first: `HintBitPack` branched on each
   hint bit, flagged at |t| 9.73 and 15.15; it is now branch-free.
+- `tests/heap_residue.rs` scans every heap block freed during key
+  generation and signing, with both key formats, for that run's secrets,
+  and finds none. `tests/os_randomness.rs` and unit tests show `key_gen`
+  and `sign` draw from the OS, the drawn bytes becoming the seed and the
+  hedge.
 
 ### `macula-keccak`
 

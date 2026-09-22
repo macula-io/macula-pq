@@ -2,9 +2,10 @@
 //! private-key formats, and verification refusing what it must.
 //!
 //! NIST's vectors pin the algorithms byte-exactly; they cannot see the
-//! public functions' own behaviour: that signing draws fresh randomness
-//! every time, that a seed-format key signs as its expansion does, and
-//! that a signature is bound to its message, its context and its key.
+//! public functions' own behaviour: that a seed-format key signs as its
+//! expansion does, and that a signature is bound to its message, its
+//! context and its key. That the randomness comes from the OS is
+//! `os_randomness.rs`'s.
 
 use macula_mldsa::{
     internal, key_gen, sign, verify, Error, ParameterSet, PrivateKey, ML_DSA_44, ML_DSA_65,
@@ -50,24 +51,6 @@ fn a_signature_verifies_and_is_bound_to_its_message_context_and_key() {
             "{}: key",
             p.name
         );
-    }
-}
-
-/// Hedged signing: each signature draws its own `rnd`, so two signatures
-/// on one message differ, and both verify.
-#[test]
-fn signing_twice_gives_two_different_valid_signatures() {
-    for p in SETS {
-        let (pk, sk) = key_gen(p).unwrap();
-        let a = sign(p, PrivateKey::Expanded(&sk), b"same", b"").unwrap();
-        let b = sign(p, PrivateKey::Expanded(&sk), b"same", b"").unwrap();
-        assert_ne!(
-            a, b,
-            "{}: two signatures on one message are identical",
-            p.name
-        );
-        assert_eq!(verify(p, &pk, b"same", &a, b""), Ok(true), "{}", p.name);
-        assert_eq!(verify(p, &pk, b"same", &b, b""), Ok(true), "{}", p.name);
     }
 }
 

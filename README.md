@@ -116,7 +116,7 @@ ML-KEM and ML-DSA, since TLS uses SHA-2.
 | **`macula-pqc`** | **The facade. This is what you depend on.** | `client_builder()` / `server_builder()`: locked to our two hybrids, nothing classical; used by `macula_quic` and `macula-rust` on their default branches, in neither's release yet |
 | `macula-keccak` | Keccak-f[1600], SHA3-256/512, SHAKE128/256 | complete, NIST ACVP vectors passing |
 | `macula-mlkem` | ML-KEM (FIPS 203) | complete: NIST ACVP vectors passing, seeds from the OS, secrets wiped, timed |
-| `macula-mldsa` | ML-DSA (FIPS 204), signatures | not released, used by nothing: key generation, signing (both key formats) and verification pass NIST's vectors at all three parameter sets; signing timed at ML-DSA-87 and -65 |
+| `macula-mldsa` | ML-DSA (FIPS 204), signatures | complete, not yet released, used by nothing: key generation, signing (both key formats) and verification pass NIST's vectors at all three parameter sets; signing timed, secrets wiped, seeds from the OS |
 | `macula-pqc-kx` | Hybrid TLS key exchange groups, including `SecP384r1MLKEM1024` | complete |
 
 ⛔ **These are separate crates rather than one with modules because the
@@ -155,8 +155,9 @@ the profile's declaration could not be true on macula's transport.
 - **Byte-exact verification against the standards bodies' own test
   vectors**, vendored with provenance and per-file checksums.
 - **No `unsafe` in any crate**: every crate carries `#![forbid(unsafe_code)]`.
-  The one file with `unsafe` in it is a test, `macula-mlkem/tests/heap_residue.rs`,
-  because the allocator it needs cannot be written without it.
+  The two files with `unsafe` in them are tests, `heap_residue.rs` in
+  `macula-mlkem` and `macula-mldsa`, because the allocator they need cannot
+  be written without it.
 - **No copied constants.** Lengths are measured from live components and
   the NTT's zeta table is computed at compile time from its definition,
   because one mistyped digit in a transcribed table gives a coherent
@@ -352,6 +353,11 @@ sets, for that run's secrets: seeds, PRF outputs, noise polynomials, the
 secret key, shared secrets. It finds none, and it does catch the two
 mistakes most likely to creep back: a key grown into its buffer instead
 of allocated at its final size, and a secret temporary left unwrapped.
+[`macula-mldsa`'s](macula-mldsa/tests/heap_residue.rs) does the same
+through key generation and signing with both key formats, for the seed,
+`rho'`, `K`, the private key's secret bytes, `rnd` and `rho''`. There the
+heap holds only the private key and a seed's per-signature expansion:
+the working secrets live in wiped stack arrays, which this cannot see.
 
 Where no vectors exist, the claim is stated as what it is.
 `macula-pqc-kx`'s hybrid composition has none published, so it is verified
@@ -411,10 +417,9 @@ counterpart; it is checked against OTP's `ssl`, outside the gate (see
 
 **Not done**
 
-- `macula-mldsa`: ML-DSA, the signature half. Key generation, signing and
-  verification pass NIST's vectors, and signing is timed. Tests that its
-  secrets leave no heap residue and that `sign` draws from the OS come
-  before it is released. Nothing uses it yet.
+- `macula-mldsa`: ML-DSA, the signature half, is complete: NIST's vectors,
+  signing timed, the heap scanned for secrets, randomness from the OS.
+  Releasing it is still to be decided, and nothing uses it yet.
 
 ## Releasing
 
