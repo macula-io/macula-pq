@@ -6,9 +6,12 @@ from scratch on `macula-keccak`.
 ⚠ **Not released yet, and nothing uses it.** Publishing it is still to be
 decided. At ML-DSA-44, -65 and -87:
 
-- **Key generation**: `key_gen` draws its seed from the OS, and FIPS 204's
-  key generation passes all 75 of NIST's keyGen vectors byte-exact, with
-  every secret intermediate wiped.
+- **Key generation**: `key_gen` draws its seed from the OS and returns the
+  expanded private key; `key_gen_seed` returns the 32-byte seed instead,
+  the form RFC 9964 stores. FIPS 204's key generation passes all 75 of
+  NIST's keyGen vectors byte-exact, with every secret intermediate wiped.
+  `public_key` derives a public key from either form, refusing an expanded
+  key whose parts disagree.
 - **Verification**: `verify` agrees with NIST on all 135 pure sigVer
   cases, counted by NIST's reason: 27 valid, and 27 each of a modified
   message, commitment, `z` and hint. The refusals no vector reaches are

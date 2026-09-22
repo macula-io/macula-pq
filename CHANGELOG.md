@@ -19,6 +19,8 @@ version may include a breaking change where that was the right call.
 
 ### `macula-mldsa` (still withheld)
 
+- `key_gen_seed` generates a key kept as its 32-byte seed, drawn from the
+  OS, the form RFC 9964's `AKP` key stores and macula's amended D6 keeps.
 - `public_key` derives a private key's public key from either form. An
   expanded key is checked against itself on the way, and refused with
   `InconsistentPrivateKey` when its stored `t0` or `tr` disagree with

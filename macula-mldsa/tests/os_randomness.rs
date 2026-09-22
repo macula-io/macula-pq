@@ -7,7 +7,7 @@
 //! replaced.
 
 use macula_mldsa::{
-    key_gen, sign, verify, ParameterSet, PrivateKey, ML_DSA_44, ML_DSA_65, ML_DSA_87,
+    key_gen, key_gen_seed, sign, verify, ParameterSet, PrivateKey, ML_DSA_44, ML_DSA_65, ML_DSA_87,
 };
 
 const SETS: [ParameterSet; 3] = [ML_DSA_44, ML_DSA_65, ML_DSA_87];
@@ -44,13 +44,34 @@ fn no_two_signatures_on_one_message_are_the_same() {
     }
 }
 
+/// Keys kept as their seed, as RFC 9964's AKP key stores them: no two
+/// draws are the same, and each signs and verifies as a seed.
+#[test]
+fn no_two_seed_keys_are_the_same_and_each_signs() {
+    for p in SETS {
+        let (pk1, seed1) = key_gen_seed(p).unwrap();
+        let (pk2, seed2) = key_gen_seed(p).unwrap();
+        assert_ne!(*seed1, *seed2, "{}: seeds", p.name);
+        assert_ne!(pk1, pk2, "{}: public keys", p.name);
+        let sig = sign(p, PrivateKey::Seed(&seed1), b"seed key", b"").unwrap();
+        assert_eq!(
+            verify(p, &pk1, b"seed key", &sig, b""),
+            Ok(true),
+            "{}",
+            p.name
+        );
+    }
+}
+
 /// What a caller receives that is secret wipes itself when it is dropped:
-/// the private key.
+/// the private key, expanded or as its seed.
 #[test]
 fn the_private_key_a_caller_receives_wipes_itself_on_drop() {
     fn wipes_on_drop<T: zeroize::ZeroizeOnDrop>(_: &T) {}
     for p in SETS {
         let (_, sk) = key_gen(p).unwrap();
         wipes_on_drop(&sk);
+        let (_, seed) = key_gen_seed(p).unwrap();
+        wipes_on_drop(&seed);
     }
 }

@@ -13,7 +13,8 @@
 //! [`key_gen`], [`sign`] and [`verify`] are FIPS 204's Algorithms 1 to 3,
 //! at ML-DSA-44, -65 and -87. Key generation and signing draw their
 //! randomness from the OS; a private key is used either expanded or as its
-//! 32-byte seed ([`PrivateKey`]).
+//! 32-byte seed ([`PrivateKey`]), and [`key_gen_seed`] generates one kept
+//! as its seed. [`public_key`] derives a public key from either form.
 //!
 //! Signing is timed (see `examples/signing_timing.rs`), the heap is
 //! scanned for secrets after every operation (`tests/heap_residue.rs`),
@@ -170,6 +171,27 @@ pub fn verify(
         h.update(context);
         h.update(message);
     }))
+}
+
+/// FIPS 204 Algorithm 1 with the private key kept as its 32-byte seed
+/// `xi`, the form RFC 9964's `AKP` key stores and FIPS 204 section 3.6.3
+/// allows: the seed is drawn from the OS and returned with the public key
+/// it generates. Sign with [`PrivateKey::Seed`]; the seed wipes itself when
+/// dropped.
+pub fn key_gen_seed(p: ParameterSet) -> Result<(Vec<u8>, Zeroizing<[u8; 32]>), Error> {
+    key_gen_seed_drawing_from(p, os_random)
+}
+
+/// [`key_gen_seed`] with its randomness source as a parameter, so the tests
+/// can see what is drawn and make the source fail.
+fn key_gen_seed_drawing_from(
+    p: ParameterSet,
+    mut random: impl FnMut(&mut [u8]) -> Result<(), Error>,
+) -> Result<(Vec<u8>, Zeroizing<[u8; 32]>), Error> {
+    let mut xi = Zeroizing::new([0u8; 32]);
+    random(&mut *xi)?;
+    let (pk, _expanded) = internal::key_gen(p, &xi);
+    Ok((pk, xi))
 }
 
 /// [`key_gen`] with its randomness source as a parameter, so the tests can
@@ -381,6 +403,28 @@ mod tests {
                 );
             }
         }
+    }
+
+    #[test]
+    fn a_failing_source_is_an_error_not_a_seed() {
+        let got = key_gen_seed_drawing_from(ML_DSA_87, |_| Err(Error::RandomnessUnavailable));
+        assert_eq!(got.err(), Some(Error::RandomnessUnavailable));
+    }
+
+    /// Exactly one 32-byte seed is drawn; it is the seed returned, and the
+    /// public key is the one key generation makes from it.
+    #[test]
+    fn the_seed_key_is_the_drawn_seed_and_its_public_key() {
+        let mut drawn = Vec::new();
+        let (pk, seed) = key_gen_seed_drawing_from(ML_DSA_87, |buf| {
+            buf.fill(0x3c);
+            drawn.push(buf.len());
+            Ok(())
+        })
+        .unwrap();
+        assert_eq!(drawn, vec![32]);
+        assert_eq!(*seed, [0x3c; 32]);
+        assert_eq!(pk, internal::key_gen(ML_DSA_87, &[0x3c; 32]).0);
     }
 
     #[test]
