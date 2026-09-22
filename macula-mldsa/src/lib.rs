@@ -10,8 +10,9 @@
 //! against NIST's own ACVP vectors before it is called done: a claim about
 //! independence and assurance, not about being first or better.
 //!
-//! ⚠ **In progress.** Today this crate holds the parameter sets and
-//! nothing else: no key generation, signing or verification yet.
+//! ⚠ **In progress.** Today this crate generates keys, from the OS
+//! ([`key_gen`]), byte-exact against NIST's vectors for all three parameter
+//! sets. There is no signing or verification yet.
 //!
 //! # Scope: pure ML-DSA
 //!
@@ -24,6 +25,61 @@
 
 #![forbid(unsafe_code)]
 #![warn(missing_docs)]
+
+// The seeded algorithms and the arithmetic are public only with the
+// `internal` feature, which is for testing: see `internal`'s docs.
+#[cfg(feature = "internal")]
+pub mod encode;
+#[cfg(not(feature = "internal"))]
+mod encode;
+#[cfg(feature = "internal")]
+pub mod internal;
+#[cfg(not(feature = "internal"))]
+mod internal;
+#[cfg(feature = "internal")]
+pub mod poly;
+#[cfg(not(feature = "internal"))]
+mod poly;
+#[cfg(feature = "internal")]
+pub mod sample;
+#[cfg(not(feature = "internal"))]
+mod sample;
+
+/// The wrapper every secret output comes in: it wipes its contents when
+/// dropped. Re-exported so a caller can name the type.
+pub use zeroize::Zeroizing;
+
+/// Why an operation refused.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Error {
+    /// The OS could not supply randomness. FIPS 204 Algorithm 1 returns an
+    /// error here rather than build a key from a seed that was not drawn.
+    RandomnessUnavailable,
+}
+
+/// FIPS 204 Algorithm 1, `ML-DSA.KeyGen`: the seed `xi` is drawn from the
+/// OS.
+///
+/// Returns `(pk, sk)`. `sk` wipes itself when dropped.
+pub fn key_gen(p: ParameterSet) -> Result<(Vec<u8>, Zeroizing<Vec<u8>>), Error> {
+    key_gen_drawing_from(p, os_random)
+}
+
+/// [`key_gen`] with its randomness source as a parameter, so the tests can
+/// see what is drawn and make the source fail.
+fn key_gen_drawing_from(
+    p: ParameterSet,
+    mut random: impl FnMut(&mut [u8]) -> Result<(), Error>,
+) -> Result<(Vec<u8>, Zeroizing<Vec<u8>>), Error> {
+    let mut xi = Zeroizing::new([0u8; 32]);
+    random(&mut *xi)?;
+    Ok(internal::key_gen(p, &xi))
+}
+
+/// The OS CSPRNG, and nothing else.
+fn os_random(buf: &mut [u8]) -> Result<(), Error> {
+    getrandom::fill(buf).map_err(|_| Error::RandomnessUnavailable)
+}
 
 /// A FIPS 204 parameter set.
 ///
@@ -112,8 +168,17 @@ impl ParameterSet {
     /// A private key: `rho`, `K`, `tr`, then `s1` and `s2` at
     /// `bitlen(2 eta)` bits and `t0` at `d` bits per coefficient.
     pub const fn private_key_len(&self) -> usize {
-        let eta_bits = if self.eta == 2 { 3 } else { 4 };
-        32 + 32 + 64 + 32 * ((self.l + self.k) * eta_bits + D * self.k)
+        32 + 32 + 64 + 32 * ((self.l + self.k) * self.eta_bits() + D * self.k)
+    }
+
+    /// `bitlen(2 eta)`: the bits of each packed coefficient of `s1` and
+    /// `s2`, 3 for eta = 2 and 4 for eta = 4.
+    pub(crate) const fn eta_bits(&self) -> usize {
+        if self.eta == 2 {
+            3
+        } else {
+            4
+        }
     }
 
     /// A signature: `c~`, then `z` at `1 + bitlen(gamma_1 - 1)` bits per
@@ -121,5 +186,45 @@ impl ParameterSet {
     pub const fn signature_len(&self) -> usize {
         let z_bits = if self.gamma1 == 1 << 17 { 18 } else { 20 };
         self.lambda / 4 + self.l * 32 * z_bits + self.omega + self.k
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_failing_source_is_an_error_not_a_key() {
+        let got = key_gen_drawing_from(ML_DSA_87, |_| Err(Error::RandomnessUnavailable));
+        assert_eq!(got.err(), Some(Error::RandomnessUnavailable));
+    }
+
+    /// Exactly one 32-byte seed is drawn, and the key is the one
+    /// `KeyGen_internal` makes from it: the OS path adds nothing and drops
+    /// nothing.
+    #[test]
+    fn the_key_is_keygen_internal_of_the_drawn_seed() {
+        let mut drawn = Vec::new();
+        let (pk, sk) = key_gen_drawing_from(ML_DSA_87, |buf| {
+            buf.fill(0x5a);
+            drawn.push(buf.len());
+            Ok(())
+        })
+        .unwrap();
+        assert_eq!(drawn, vec![32]);
+        let (want_pk, want_sk) = internal::key_gen(ML_DSA_87, &[0x5a; 32]);
+        assert_eq!(pk, want_pk);
+        assert_eq!(*sk, *want_sk);
+    }
+
+    #[test]
+    fn keys_from_the_os_have_the_standards_lengths_and_differ() {
+        for p in [ML_DSA_44, ML_DSA_65, ML_DSA_87] {
+            let (pk1, sk1) = key_gen(p).unwrap();
+            let (pk2, _) = key_gen(p).unwrap();
+            assert_eq!(pk1.len(), p.public_key_len(), "{}", p.name);
+            assert_eq!(sk1.len(), p.private_key_len(), "{}", p.name);
+            assert_ne!(pk1, pk2, "{}: two draws gave one key", p.name);
+        }
     }
 }

@@ -116,7 +116,7 @@ ML-KEM and ML-DSA, since TLS uses SHA-2.
 | **`macula-pqc`** | **The facade. This is what you depend on.** | `client_builder()` / `server_builder()`: locked to our two hybrids, nothing classical; used by `macula_quic` and `macula-rust` on their default branches, in neither's release yet |
 | `macula-keccak` | Keccak-f[1600], SHA3-256/512, SHAKE128/256 | complete, NIST ACVP vectors passing |
 | `macula-mlkem` | ML-KEM (FIPS 203) | complete: NIST ACVP vectors passing, seeds from the OS, secrets wiped, timed |
-| `macula-mldsa` | ML-DSA (FIPS 204), signatures | in progress, not released, used by nothing: parameter sets and NIST's vectors, no algorithm yet |
+| `macula-mldsa` | ML-DSA (FIPS 204), signatures | in progress, not released, used by nothing: key generation passes NIST's vectors at all three parameter sets; no signing or verification yet |
 | `macula-pqc-kx` | Hybrid TLS key exchange groups, including `SecP384r1MLKEM1024` | complete |
 
 ⛔ **These are separate crates rather than one with modules because the
@@ -396,8 +396,9 @@ counterpart; it is checked against OTP's `ssl`, outside the gate (see
 
 **Not done**
 
-- `macula-mldsa`: ML-DSA, the signature half, is being built. Nothing
-  uses it and it is not released.
+- `macula-mldsa`: ML-DSA, the signature half, is being built. Key
+  generation passes NIST's vectors; signing and verification are next.
+  Nothing uses it and it is not released.
 
 ## Releasing
 

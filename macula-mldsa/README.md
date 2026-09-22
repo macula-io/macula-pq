@@ -3,12 +3,13 @@
 ML-DSA (FIPS 204), the post-quantum signature standard, being written
 from scratch on `macula-keccak`.
 
-⚠ **In progress. Not released, and nothing uses it.** Today it holds the
-three parameter sets, ML-DSA-44, -65 and -87, with their key and
-signature sizes checked against FIPS 204's tables, and NIST's ACVP
-vectors with a harness that asserts their shape: what will run, what is
-excluded and why, and every sigVer negative by its reason. There is no
-key generation, signing or verification yet.
+⚠ **In progress. Not released, and nothing uses it.** Today it
+generates keys at ML-DSA-44, -65 and -87: `key_gen` draws its seed from
+the OS, and FIPS 204's key generation passes all 75 of NIST's ACVP keyGen
+vectors byte-exact, with every secret intermediate wiped. The harness
+already asserts the shape of the signing and verification vectors: what
+will run, what is excluded and why, and every sigVer negative by its
+reason. There is no signing or verification yet.
 
 ML-DSA is not special here. FIPS 204 has several good implementations,
 OTP's `crypto` and `aws-lc-rs` among them. This one exists so the

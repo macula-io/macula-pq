@@ -51,6 +51,13 @@ fn vectors(dir: &str, file: &str) -> Value {
     .unwrap()
 }
 
+fn hex(s: &str) -> Vec<u8> {
+    (0..s.len())
+        .step_by(2)
+        .map(|i| u8::from_str_radix(&s[i..i + 2], 16).unwrap())
+        .collect()
+}
+
 fn hex_of(b: &[u8]) -> String {
     b.iter().map(|x| format!("{x:02x}")).collect()
 }
@@ -354,4 +361,42 @@ fn the_exclusion_refuses_an_unknown_group_kind() {
         msg.contains("tgId 99") && msg.contains("prehash-v2"),
         "names the group: {msg}"
     );
+}
+
+// ---------------------------------------------------------------------
+// The operations
+// ---------------------------------------------------------------------
+
+/// FIPS 204 Algorithm 6, `ML-DSA.KeyGen_internal`, byte-exact for every
+/// seed NIST gives, at all three parameter sets.
+#[test]
+fn key_gen_matches_acvp() {
+    let exp = expected(KEYGEN);
+    let p = vectors(KEYGEN, "prompt.json");
+    let mut ran = 0;
+    for g in groups(&p) {
+        let set = g["parameterSet"].as_str().unwrap();
+        for t in tests(g) {
+            let tc = t["tcId"].as_u64().unwrap();
+            let seed: [u8; 32] = hex(t["seed"].as_str().unwrap()).try_into().unwrap();
+            let (pk, sk) = macula_mldsa::internal::key_gen(param(set), &seed);
+            let want = &exp[&tc];
+            compare(
+                set,
+                tc,
+                "public key",
+                &pk,
+                &hex(want["pk"].as_str().unwrap()),
+            );
+            compare(
+                set,
+                tc,
+                "private key",
+                &sk,
+                &hex(want["sk"].as_str().unwrap()),
+            );
+            ran += 1;
+        }
+    }
+    assert_eq!(ran, 75, "keyGen cases run");
 }

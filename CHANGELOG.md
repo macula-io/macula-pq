@@ -17,6 +17,13 @@ version may include a breaking change where that was the right call.
   both consumers, `macula_quic` and `macula-rust`, moved to `macula-pqc`
   0.1 on their default branches.
 
+### `macula-mldsa` (still withheld)
+
+- Key generation: `key_gen` draws its seed from the OS, and FIPS 204
+  Algorithm 6 (`internal::key_gen`, testing only) passes all 75 of NIST's
+  keyGen vectors, byte-exact, at ML-DSA-44, -65 and -87. Every secret
+  intermediate is wiped. No signing or verification yet.
+
 ### `macula-keccak`
 
 - `Shake256` absorbs its input in pieces and `finalize_xof` returns a
