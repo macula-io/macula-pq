@@ -176,10 +176,17 @@ Those are follow-ups in those repositories and neither is done.
 ./scripts/test.sh
 ```
 
-Six gates: `cargo test`, `cargo test --release`, `cargo clippy -D
-warnings` twice, `scripts/check-readme.sh`, `cargo fmt --check`. CI runs
-this same script rather than restating the gates, so the two cannot
-drift.
+Seven gates: `cargo test`, `cargo test --release`, `cargo clippy -D
+warnings` twice, `scripts/check-packaging.sh`, `scripts/check-readme.sh`,
+`cargo fmt --check`. CI runs this same script rather than restating the
+gates, so the two cannot drift.
+
+**Packaging is checked on every commit, not at the first release.**
+[`check-packaging.sh`](scripts/check-packaging.sh) packages all four
+crates for crates.io, offline and without building, from a copy of the
+tree with `publish = false` removed: cargo will not package a crate
+against a dependency marked unpublishable, so the check cannot run in the
+tree itself while that flag is on.
 
 **Clippy runs twice because tests and consumers build different
 libraries.** `macula-mlkem`'s own tests switch on its `internal` feature,
@@ -320,13 +327,19 @@ counterpart; it is checked against OTP's `ssl`, outside the gate (see
   and a classical-only peer cannot agree with it in either role.
 - Interop with OTP 28.4.2's `ssl`, outside the gate: both hybrids agree in
   both roles; a classical-only peer is refused in both.
-- The gate: six checks, two build profiles, one script, run by the
+- The gate: seven checks, two build profiles, one script, run by the
   pre-commit hook and by CI.
 
 **Not done**
 
 - Migrating `macula_quic` and `macula-rust` onto the facade.
 - Nothing is published; every crate carries `publish = false`.
+  Releasing is a `vX.Y.Z` tag:
+  [`release-core.yml`](.github/workflows/release-core.yml)'s `verify` job
+  checks all four are publishable at the tag's version, runs the gate and
+  a dry-run publish, then `publish` waits for approval in the `crates-io`
+  environment. The crates.io token belongs in that environment's secrets,
+  not the repository's, so nothing holding it runs before the approval.
 
 ## What is not claimed
 

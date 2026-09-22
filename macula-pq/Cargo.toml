@@ -1,14 +1,15 @@
 [package]
 name = "macula-pq"
-version = "0.1.0"
-edition = "2021"
-license = "Apache-2.0"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
 description = "The facade: the one place macula's post-quantum posture is decided"
 publish = false
 
 [dependencies]
 rustls = { workspace = true }
-macula-pq-kx = { path = "../macula-pq-kx" }
+macula-pq-kx = { workspace = true }
 
 [dev-dependencies]
 # A CA and a server certificate for real TLS handshakes in the tests. The

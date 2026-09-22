@@ -39,6 +39,9 @@ echo "=== libraries as a consumer builds them ==="
 # the one where the seeded functions are private.
 cargo clippy --workspace --lib -- -D warnings
 echo
+echo "=== packaging ==="
+./scripts/check-packaging.sh
+echo
 echo "=== readme ==="
 ./scripts/check-readme.sh
 echo

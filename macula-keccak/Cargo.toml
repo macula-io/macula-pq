@@ -1,8 +1,9 @@
 [package]
 name = "macula-keccak"
-version = "0.1.0"
-edition = "2021"
-license = "Apache-2.0"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
 description = "Keccak-f[1600], SHA3-256/512 and SHAKE128/256, implemented here rather than depended on"
 publish = false
 

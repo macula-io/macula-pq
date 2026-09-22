@@ -1,8 +1,9 @@
 [package]
 name = "macula-mlkem"
-version = "0.1.0"
-edition = "2021"
-license = "Apache-2.0"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
 description = "ML-KEM (FIPS 203), implemented here rather than depended on"
 publish = false
 
@@ -16,7 +17,7 @@ publish = false
 internal = []
 
 [dependencies]
-macula-keccak = { path = "../macula-keccak" }
+macula-keccak = { workspace = true }
 # The OS CSPRNG, and nothing else. See the crate docs.
 getrandom = "0.4"
 # Wipes every secret when it is dropped: seeds, keys, noise, the message,
