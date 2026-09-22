@@ -57,9 +57,11 @@ say why in the commit message.
 
 ## Releases
 
-A `vX.Y.Z` tag publishes every crate to crates.io. The release
-workflow checks every crate is publishable at the tag's version, runs the
-gate and a dry-run publish, then publishes.
+A `vX.Y.Z` tag publishes every finished crate to crates.io. A crate
+still being built carries `publish = false` and a reason in
+`[package.metadata.withheld]`, and is left behind. The release workflow
+runs `scripts/check-release.sh`, the gate and a dry-run publish, then
+publishes, and names what it withheld in the run summary.
 
 ## License
 

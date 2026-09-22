@@ -3,8 +3,8 @@ name: Release to crates.io
 # Publishes every crate from one pushed release tag. THE TAG IS THE
 # RELEASE: there is no approval step.
 #
-# - A pushed tag vX.Y.Z runs `verify`: every crate is publishable at the
-#   tag's version, the full gate passes, and a dry-run publish succeeds.
+# - A pushed tag vX.Y.Z runs `verify`: scripts/check-release.sh passes
+#   (see below), the full gate passes, and a dry-run publish succeeds.
 #   Then `publish` runs in the `crates-io` environment. That environment
 #   admits only `v*.*.*` tags and holds the crates.io token, so the token
 #   is readable by this job on a release tag and by nothing else: not a
@@ -16,8 +16,8 @@ name: Release to crates.io
 #   never publishes. GitHub only dispatches a workflow that is on the
 #   default branch.
 #
-# ⛔ EVERY CRATE IS PUBLISHED. ONLY `macula-pqc` IS A SUPPORTED ENTRY
-# POINT. Both halves matter and a later reader will otherwise "simplify"
+# ⛔ EVERY FINISHED CRATE IS PUBLISHED. ONLY `macula-pqc` IS A SUPPORTED
+# ENTRY POINT. Both halves matter and a later reader will otherwise "simplify"
 # one of them away.
 #
 # WHY ALL ARE PUBLISHED: a mechanical constraint, not a product
@@ -48,11 +48,15 @@ name: Release to crates.io
 # RUSTLS DEPENDENCY THAT LAYERING IS GONE, and nobody will notice from
 # inside the crate.
 #
-# ⚠ A NEW CRATE CARRIES `publish = false` UNTIL IT IS READY, ON PURPOSE.
-# The crates share one version and release together from one tag, so
-# `verify` refuses a tag while ANY of them still carries the flag, rather
-# than leave a half-released set. Clear it deliberately, when the crate is
-# ready, never in a sweep "to make the workflow work".
+# ⚠ A NEW CRATE CARRIES `publish = false` UNTIL IT IS READY, ON PURPOSE,
+# with its reason in `[package.metadata.withheld]`. A tag releases the
+# others and leaves it behind: nothing published depends on it, and cargo
+# refuses to publish a crate whose dependency is not on the registry, which
+# the dry run exercises. scripts/check-release.sh refuses a withheld crate
+# with no reason, and names every withheld crate and its reason in the run
+# summary, so "0.1.1 published" never reads as "every crate published".
+# Clear the flag deliberately, when the crate is ready, never in a sweep
+# "to make the workflow work".
 
 on:
   push:
@@ -89,25 +93,12 @@ jobs:
       # ⛔ `cargo publish --workspace` EXITS 0 WHEN EVERY CRATE CARRIES
       # `publish = false`: it warns "nothing to publish" and reports
       # success. Without this step a stray tag would give a green release
-      # run that released nothing. The version comes from `cargo
-      # metadata`, which resolves what each crate inherits from the
-      # workspace.
-      - name: Every crate is publishable, at the tag's version
-        run: |
-          want="${RELEASE_TAG#v}"
-          fail=0
-          while IFS=$'\t' read -r name version publishable; do
-            if [ "$version" != "$want" ]; then
-              echo "::error::$name is $version, the tag says $want"
-              fail=1
-            fi
-            if [ "$publishable" != yes ]; then
-              echo "::error::$name carries publish = false"
-              fail=1
-            fi
-          done < <(cargo metadata --no-deps --format-version 1 \
-            | jq -r '.packages[] | [.name, .version, (if .publish == [] then "no" else "yes" end)] | @tsv')
-          exit "$fail"
+      # run that released nothing. The script also refuses a crate whose
+      # version is not the tag's, or that is withheld without a reason,
+      # and writes what is published and withheld to the run summary. The
+      # gate proves each refusal on every commit (test-check-release.sh).
+      - name: Publishable at the tag's version, withheld crates named
+        run: ./scripts/check-release.sh "$RELEASE_TAG"
 
       # A tag push is a separate event from the branch push CI validated,
       # so there is no prior output to reuse. Same script as the hook and CI.
@@ -143,3 +134,8 @@ jobs:
         run: cargo publish --workspace
         env:
           CARGO_REGISTRY_TOKEN: ${{ secrets.CRATES_IO_TOKEN }}
+
+      # cargo skips a withheld crate without a word, so the run that
+      # published says what it left behind, and why.
+      - name: What was published, and what was withheld
+        run: ./scripts/check-release.sh "$GITHUB_REF_NAME"

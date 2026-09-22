@@ -21,9 +21,8 @@
 
 ---
 
-> **Status, 2026-09-22:** early. 0.1.0 was released as `macula-pq`; under
-> its new name, `macula-pqc`, nothing is published yet, and the first
-> version will be 0.1.1.
+> **Status, 2026-09-22:** early. 0.1.1 is the first release under the name
+> `macula-pqc`; 0.1.0 was released as `macula-pq`.
 > **`macula-pqc` hands out rustls configuration builders locked to
 > `SecP384r1MLKEM1024` then `SecP256r1MLKEM768`, both on this project's
 > own ML-KEM, and nothing classical.** No rustls provider offers
@@ -216,7 +215,7 @@ on `macula-pqc` and nothing else for crypto: no provider selection, no
 RELEASE OF EITHER, AND UNDER THE OLD NAME.** `macula_quic` and
 `macula-rust` take their key exchange from the facade's builders and
 select no rustls provider of their own, but they depend on `macula-pq`
-0.1.0, and switch to `macula-pqc` once it is published.
+0.1.0, and switch to `macula-pqc` 0.1.1 next.
 
 ## Testing
 
@@ -224,10 +223,10 @@ select no rustls provider of their own, but they depend on `macula-pq`
 ./scripts/test.sh
 ```
 
-Eight gates: `cargo test`, `cargo test --release`, `cargo clippy -D
+Nine gates: `cargo test`, `cargo test --release`, `cargo clippy -D
 warnings` twice, `cargo doc` with warnings denied,
-`scripts/check-packaging.sh`, `scripts/check-readme.sh`, `cargo fmt
---check`. CI runs this same script rather than restating the gates, so
+`scripts/check-packaging.sh`, `scripts/check-readme.sh`,
+`scripts/test-check-release.sh`, `cargo fmt --check`. CI runs this same script rather than restating the gates, so
 the two cannot drift. Every public item must be documented: each crate
 carries `#![warn(missing_docs)]`, which clippy's `-D warnings` makes an
 error.
@@ -380,12 +379,14 @@ counterpart; it is checked against OTP's `ssl`, outside the gate (see
   and a classical-only peer cannot agree with it in either role.
 - Interop with OTP 28.4.2's `ssl`, outside the gate: both hybrids agree in
   both roles; a classical-only peer is refused in both.
-- The gate: eight checks, two build profiles, one script, run by the
+- The gate: nine checks, two build profiles, one script, run by the
   pre-commit hook and by CI.
 
 - Released to crates.io as 0.1.0, under the names of the time:
   `macula-pq`, `macula-pq-kx`, `macula-mlkem` and `macula-keccak`, from
-  one tag. See [CHANGELOG.md](CHANGELOG.md).
+  one tag; and as 0.1.1 under the new names, `macula-pqc` and
+  `macula-pqc-kx`, with `macula-mldsa` withheld. See
+  [CHANGELOG.md](CHANGELOG.md).
 
 - `macula_quic` (in `macula`) and `macula-rust` key-exchange through the
   facade on their default branches, as `macula-pq` 0.1.0; neither has
@@ -393,8 +394,7 @@ counterpart; it is checked against OTP's `ssl`, outside the gate (see
 
 **Not done**
 
-- Publishing under the new names, `macula-pqc` and `macula-pqc-kx`, and
-  moving both consumers onto them.
+- Moving both consumers from `macula-pq` 0.1.0 onto `macula-pqc`.
 - `macula-mldsa`: ML-DSA, the signature half, is being built. Nothing
   uses it and it is not released.
 
@@ -402,10 +402,19 @@ counterpart; it is checked against OTP's `ssl`, outside the gate (see
 
 A `vX.Y.Z` tag is the release.
 [`release-core.yml`](.github/workflows/release-core.yml)'s `verify` job
-checks every crate is publishable at the tag's version, runs the gate
-and a dry-run publish, then `publish` runs in the `crates-io` environment
-with no approval step. That environment admits only `v*.*.*` tags and
-holds the crates.io token, so nothing else can read it.
+runs [`check-release.sh`](scripts/check-release.sh), the gate and a
+dry-run publish, then `publish` runs in the `crates-io` environment with
+no approval step. That environment admits only `v*.*.*` tags and holds
+the crates.io token, so nothing else can read it.
+
+**A crate still being built is withheld, and said to be.** It carries
+`publish = false` and a reason in `[package.metadata.withheld]`; the tag
+releases the others. `check-release.sh` refuses a tag when nothing is
+publishable (cargo would report success and release nothing), when a
+version differs from the tag's, or when a crate carries the flag without
+a reason or a reason without the flag, and both jobs write a table of what was published and what was
+withheld, and why, to the run summary. cargo refuses to publish a crate
+that depends on a withheld one, which the dry run exercises first.
 
 ## What is not claimed
 

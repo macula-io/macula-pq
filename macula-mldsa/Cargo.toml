@@ -13,6 +13,12 @@ publish = false
 # published crate carries neither the vectors nor that test.
 exclude = ["vectors/", "tests/acvp.rs"]
 
+# Why a release tag leaves this crate behind. scripts/check-release.sh
+# refuses `publish = false` without it, and prints it in the release
+# summary. Remove both together when ML-DSA is done.
+[package.metadata.withheld]
+reason = "ML-DSA is being built: no key generation, signing or verification yet"
+
 [features]
 # FIPS 204's internal functions, ML-DSA.KeyGen_internal and
 # ML-DSA.Sign_internal, with their seeds and randomness supplied by the

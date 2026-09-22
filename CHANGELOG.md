@@ -4,11 +4,14 @@ All notable changes to the crates of this workspace, `macula-pqc`,
 `macula-pqc-kx`, `macula-mlkem`, `macula-mldsa` and `macula-keccak`, are
 documented here. The 0.1.0 entry below uses the names it shipped under.
 They share one version and are released together from one `vX.Y.Z` tag,
-so there is one section per release. Format follows
+so there is one section per release. A crate still being built is
+withheld from a release, and its section says so. Format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Pre-1.0: a minor
 version may include a breaking change where that was the right call.
 
-## [Unreleased]
+## [0.1.1] - 2026-09-22
+
+The first release under the new names. No API changes.
 
 ### Renamed: `macula-pq` is now `macula-pqc`
 
@@ -25,9 +28,21 @@ version may include a breaking change where that was the right call.
 
 ### `macula-mldsa`
 
-- New crate, not released (`publish = false`): ML-DSA (FIPS 204). So far
-  the three parameter sets with their key and signature sizes, and NIST's
-  ACVP vectors vendored, excluded from the published crate.
+- New crate, **withheld from this release** (`publish = false`): ML-DSA
+  (FIPS 204) is being built. So far the three parameter sets with their
+  key and signature sizes, and NIST's ACVP vectors vendored, excluded from
+  the published crate, with a harness asserting their shape.
+
+### Releasing
+
+- A tag no longer refuses to run while a crate is withheld. It releases
+  the others, and refuses only when nothing is publishable, when a
+  version differs from the tag's, or when `publish = false` and a reason
+  in `[package.metadata.withheld]` do not come together. Both release jobs name every
+  withheld crate and its reason in the run summary. The gate proves each
+  refusal on every commit (`scripts/test-check-release.sh`).
+- The gate builds every crate from its package, not only packages it:
+  source reading a file `exclude` leaves out would fail every consumer.
 
 ## [0.1.0] - 2026-09-22
 
@@ -69,4 +84,5 @@ The first release.
 - NIST ACVP vectors, including the Monte Carlo chains, and FIPS 202 known
   answers.
 
+[0.1.1]: https://github.com/macula-io/macula-pqc/releases/tag/v0.1.1
 [0.1.0]: https://github.com/macula-io/macula-pq/releases/tag/v0.1.0

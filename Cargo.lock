@@ -214,7 +214,7 @@ checksum = "3eaf3ede3fee6db1a4c2ee091bf8a8b4dccdc6d17f656fb07896ee72867612f2"
 
 [[package]]
 name = "macula-keccak"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "serde_json",
  "zeroize",
@@ -222,7 +222,7 @@ dependencies = [
 
 [[package]]
 name = "macula-mldsa"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "getrandom 0.4.3",
  "macula-keccak",
@@ -233,7 +233,7 @@ dependencies = [
 
 [[package]]
 name = "macula-mlkem"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "getrandom 0.4.3",
  "macula-keccak",
@@ -244,7 +244,7 @@ dependencies = [
 
 [[package]]
 name = "macula-pqc"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "macula-pqc-kx",
  "rcgen",
@@ -253,7 +253,7 @@ dependencies = [
 
 [[package]]
 name = "macula-pqc-kx"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "aws-lc-rs",
  "macula-mlkem",
