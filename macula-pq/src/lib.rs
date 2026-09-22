@@ -7,6 +7,44 @@
 //! chooses certificates, the verifier, client authentication and ALPN. It
 //! cannot choose the key exchange groups.
 //!
+//! # Getting started
+//!
+//! Depend on `macula-pq` and nothing else for key exchange. Build each
+//! rustls configuration from one of the two builders, then carry on as
+//! with any rustls builder: the key exchange groups are the only thing
+//! already decided.
+//!
+//! ```
+//! # fn main() -> Result<(), Box<dyn std::error::Error>> {
+//! # let certified = rcgen::generate_simple_self_signed(vec!["localhost".to_string()])?;
+//! # let certificate = certified.cert.der().clone();
+//! # let private_key: rustls::pki_types::PrivateKeyDer<'static> =
+//! #     rustls::pki_types::PrivatePkcs8KeyDer::from(certified.signing_key.serialize_der()).into();
+//! # let trusted_root = certificate.clone();
+//! // A client: you choose how the server is verified.
+//! let mut roots = rustls::RootCertStore::empty();
+//! roots.add(trusted_root)?;
+//! let mut client = macula_pq::client_builder()
+//!     .with_root_certificates(roots)
+//!     .with_no_client_auth();
+//! client.alpn_protocols = vec![b"macula".to_vec()];
+//!
+//! // A server: you choose client authentication and the certificate.
+//! let server = macula_pq::server_builder()
+//!     .with_no_client_auth()
+//!     .with_single_cert(vec![certificate], private_key)?;
+//!
+//! // Both offer SecP384r1MLKEM1024, then SecP256r1MLKEM768, and nothing else.
+//! assert_eq!(client.crypto_provider().kx_groups.len(), 2);
+//! assert_eq!(server.crypto_provider().kx_groups.len(), 2);
+//! # Ok(())
+//! # }
+//! ```
+//!
+//! For QUIC, hand the result to quinn as usual, for example
+//! `quinn::crypto::rustls::QuicClientConfig::try_from(client)`. QUIC
+//! requires TLS 1.3, which both builders already fix.
+//!
 //! # Why a facade, and why the posture lives here
 //!
 //! The `kx_groups` list IS the post-quantum posture: which groups are
@@ -42,10 +80,17 @@
 //! posture checkable rather than merely documented.
 
 #![forbid(unsafe_code)]
+#![warn(missing_docs)]
 
 use std::sync::Arc;
 
 use rustls::{ClientConfig, ConfigBuilder, ServerConfig, WantsVerifier};
+
+/// The crate README's code, compiled as a doctest so it cannot drift from
+/// the API it shows. Exists only when doctests are built.
+#[cfg(doctest)]
+#[doc = include_str!("../README.md")]
+pub struct ReadmeDoctests;
 
 /// A rustls client configuration builder with macula's crypto provider
 /// and TLS 1.3 already fixed. Continue with a verifier and client

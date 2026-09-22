@@ -1,0 +1,37 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="640" height="424" viewBox="0 0 640 424" role="img" aria-labelledby="title desc">
+  <title id="title">How the four macula-pq crates depend on each other</title>
+  <desc id="desc">macula-pq, the facade and entry point, depends on macula-pq-kx, which adds rustls and aws-lc-rs. macula-pq-kx depends on macula-mlkem, which depends on macula-keccak. Neither macula-mlkem nor macula-keccak depends on rustls or anything TLS.</desc>
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto">
+      <path d="M0,0 L10,5 L0,10 z" fill="#1E3A5F"/>
+    </marker>
+  </defs>
+  <rect x="1" y="1" width="638" height="422" rx="12" fill="#FFFFFF" stroke="#E2E8F0"/>
+  <g font-family="'JetBrains Mono', 'Fira Code', 'SF Mono', Consolas, monospace">
+    <rect x="100" y="24" width="440" height="60" rx="8" fill="#FFF7ED" stroke="#F97316" stroke-width="2"/>
+    <text x="120" y="50" font-size="16" font-weight="700" fill="#0C1929">macula-pq</text>
+    <text x="520" y="50" font-size="12" font-weight="700" fill="#F97316" text-anchor="end">depend on this</text>
+    <text x="120" y="72" font-size="12" fill="#1E3A5F">the facade: client_builder(), server_builder()</text>
+
+    <line x1="320" y1="84" x2="320" y2="114" stroke="#1E3A5F" stroke-width="1.5" marker-end="url(#arrow)"/>
+
+    <rect x="100" y="116" width="440" height="60" rx="8" fill="#F0F9FF" stroke="#0EA5E9" stroke-width="1.5"/>
+    <text x="120" y="142" font-size="16" font-weight="700" fill="#0C1929">macula-pq-kx</text>
+    <text x="120" y="164" font-size="12" fill="#1E3A5F">the hybrids, + rustls and aws-lc-rs (ECDH)</text>
+
+    <line x1="320" y1="176" x2="320" y2="226" stroke="#1E3A5F" stroke-width="1.5" marker-end="url(#arrow)"/>
+
+    <rect x="76" y="200" width="488" height="200" rx="10" fill="none" stroke="#1E3A5F" stroke-width="1" stroke-dasharray="6 4"/>
+    <text x="548" y="218" font-size="11" fill="#1E3A5F" text-anchor="end">the maths: no rustls, nothing TLS</text>
+
+    <rect x="100" y="228" width="440" height="60" rx="8" fill="#F0F9FF" stroke="#0EA5E9" stroke-width="1.5"/>
+    <text x="120" y="254" font-size="16" font-weight="700" fill="#0C1929">macula-mlkem</text>
+    <text x="120" y="276" font-size="12" fill="#1E3A5F">ML-KEM, + OS randomness and zeroize</text>
+
+    <line x1="320" y1="288" x2="320" y2="318" stroke="#1E3A5F" stroke-width="1.5" marker-end="url(#arrow)"/>
+
+    <rect x="100" y="320" width="440" height="60" rx="8" fill="#F0F9FF" stroke="#0EA5E9" stroke-width="1.5"/>
+    <text x="120" y="346" font-size="16" font-weight="700" fill="#0C1929">macula-keccak</text>
+    <text x="120" y="368" font-size="12" fill="#1E3A5F">SHA-3 and SHAKE, + zeroize</text>
+  </g>
+</svg>

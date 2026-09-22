@@ -39,6 +39,12 @@ echo "=== libraries as a consumer builds them ==="
 # the one where the seeded functions are private.
 cargo clippy --workspace --lib -- -D warnings
 echo
+echo "=== docs ==="
+# What docs.rs will build: a broken intra-doc link fails it. Undocumented
+# public items are caught above, by `#![warn(missing_docs)]` under clippy's
+# -D warnings.
+RUSTDOCFLAGS="-D warnings" cargo doc --workspace --no-deps --quiet
+echo
 echo "=== packaging ==="
 ./scripts/check-packaging.sh
 echo

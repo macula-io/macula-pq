@@ -4,15 +4,14 @@ version.workspace = true
 edition.workspace = true
 license.workspace = true
 repository.workspace = true
-description = "SecP384r1MLKEM1024 hybrid key exchange for rustls, implemented here rather than depended on"
-publish = false
+description = "SecP384r1MLKEM1024 and SecP256r1MLKEM768 hybrid key exchange groups for rustls, on macula-mlkem's ML-KEM"
+keywords = ["post-quantum", "ml-kem", "rustls", "key-exchange", "hybrid"]
+categories.workspace = true
 
-# Pinned with `=` deliberately. Every length and code point this crate is
-# built on was MEASURED against these exact versions; a silent minor bump
-# would move the ground the measurements stand on.
+# Versions and the reasons for them are in the workspace Cargo.toml.
 [dependencies]
 macula-mlkem = { workspace = true }
-rustls = { version = "=0.23.43", default-features = false, features = ["aws-lc-rs", "std"] }
+rustls = { workspace = true }
 
 [dev-dependencies]
-aws-lc-rs = "=1.18.1"
+aws-lc-rs = { workspace = true }

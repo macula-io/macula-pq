@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# Every crate must be packageable for crates.io, although each carries
-# `publish = false` until it is ready to release.
+# Every crate must be packageable for crates.io, including a new crate
+# that still carries `publish = false` before its first release.
 #
 # Why this exists: the path dependencies between these crates once had no
 # version, which cargo refuses to package, and nothing said so. It was
@@ -8,7 +8,7 @@
 #
 # ⚠ WHY A COPY. cargo leaves `publish = false` crates out of the local
 # registry it packages their dependents against, so `cargo package
-# --workspace` cannot pass in this tree while the safety catch is on, by
+# --workspace` cannot pass in a tree where any crate carries the flag, by
 # design. This packages a copy with the flag removed: offline, no build,
 # under a second. The real tree is never touched, and the release
 # workflow's dry run still does the full verification.

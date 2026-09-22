@@ -1,4 +1,4 @@
-//! Keccak-f[1600], SHA3-256/512 and SHAKE128/256.
+//! Keccak-f\[1600\], SHA3-256/512 and SHAKE128/256.
 //!
 //! # Why this is built before ML-KEM
 //!
@@ -6,9 +6,9 @@
 //! Implementing ML-KEM while taking Keccak from a third party would
 //! relocate the dependency rather than remove it.
 //!
-//! # Why this one is genuinely constant-time, when ML-KEM will not be
+//! # Timing: an argument from the algorithm's shape
 //!
-//! Keccak-f[1600] is a fixed permutation of bitwise operations over a
+//! Keccak-f\[1600\] is a fixed permutation of bitwise operations over a
 //! fixed-size state. **There is no secret-dependent branch or table index
 //! to write**, because nothing in the permutation is data-dependent: the
 //! round count is fixed, the rotation offsets are compile-time constants,
@@ -41,6 +41,7 @@
 //! after the standard never exercises a multi-block squeeze.
 
 #![forbid(unsafe_code)]
+#![warn(missing_docs)]
 
 use zeroize::{Zeroize, ZeroizeOnDrop, Zeroizing};
 

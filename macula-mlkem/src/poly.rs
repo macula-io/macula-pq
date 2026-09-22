@@ -30,17 +30,22 @@ pub fn reduce(a: i32) -> i16 {
     r as i16
 }
 
+/// `a * b mod q`, for `a` and `b` in `[0, q)`, by [`reduce`].
 #[inline(always)]
 pub fn mul(a: i16, b: i16) -> i16 {
     reduce(a as i32 * b as i32)
 }
 
+/// `a + b mod q`, for `a` and `b` in `[0, q)`, subtracting `q` under a
+/// mask rather than a branch.
 #[inline(always)]
 pub fn add(a: i16, b: i16) -> i16 {
     let s = a as i32 + b as i32;
     (s - ((((Q - 1 - s) >> 31) & 1) * Q)) as i16
 }
 
+/// `a - b mod q`, for `a` and `b` in `[0, q)`, adding `q` under a mask
+/// rather than a branch.
 #[inline(always)]
 pub fn sub(a: i16, b: i16) -> i16 {
     let d = a as i32 - b as i32;
@@ -151,6 +156,7 @@ pub fn multiply_ntts(a: &Poly, b: &Poly) -> Poly {
     out
 }
 
+/// [`add`] coefficient by coefficient.
 pub fn poly_add(a: &Poly, b: &Poly) -> Poly {
     let mut out = [0i16; N];
     for i in 0..N {
@@ -159,6 +165,7 @@ pub fn poly_add(a: &Poly, b: &Poly) -> Poly {
     out
 }
 
+/// [`sub`] coefficient by coefficient.
 pub fn poly_sub(a: &Poly, b: &Poly) -> Poly {
     let mut out = [0i16; N];
     for i in 0..N {

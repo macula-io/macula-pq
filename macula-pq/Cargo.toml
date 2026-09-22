@@ -4,8 +4,9 @@ version.workspace = true
 edition.workspace = true
 license.workspace = true
 repository.workspace = true
-description = "The facade: the one place macula's post-quantum posture is decided"
-publish = false
+description = "rustls configuration builders locked to post-quantum hybrid key exchange: SecP384r1MLKEM1024 and SecP256r1MLKEM768"
+keywords = ["post-quantum", "ml-kem", "rustls", "tls", "hybrid"]
+categories.workspace = true
 
 [dependencies]
 rustls = { workspace = true }

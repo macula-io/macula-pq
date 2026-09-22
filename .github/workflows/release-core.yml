@@ -46,12 +46,11 @@ name: Release to crates.io
 # place. IF `macula-mlkem` EVER GAINS A RUSTLS DEPENDENCY THAT LAYERING IS
 # GONE, and nobody will notice from inside the crate.
 #
-# ⚠ EVERY CRATE CARRIES `publish = false` UNTIL IT IS READY, ON PURPOSE:
-# nothing here has been released. The four share one version and release
-# together from one tag, so `verify` refuses a tag while ANY of them still
-# carries the flag, rather than leave a half-released set. Clear the flag
-# deliberately, when the crates are ready, never in a sweep "to make the
-# workflow work".
+# ⚠ A NEW CRATE CARRIES `publish = false` UNTIL IT IS READY, ON PURPOSE.
+# The crates share one version and release together from one tag, so
+# `verify` refuses a tag while ANY of them still carries the flag, rather
+# than leave a half-released set. Clear it deliberately, when the crate is
+# ready, never in a sweep "to make the workflow work".
 
 on:
   push:

@@ -1,6 +1,8 @@
 # macula-pq
 
 [![CI](https://img.shields.io/github/actions/workflow/status/macula-io/macula-pq/ci.yml?branch=main&label=CI)](https://github.com/macula-io/macula-pq/actions/workflows/ci.yml)
+[![crates.io](https://img.shields.io/crates/v/macula-pq.svg)](https://crates.io/crates/macula-pq)
+[![docs.rs](https://img.shields.io/docsrs/macula-pq)](https://docs.rs/macula-pq)
 [![License](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](#license)
 [![Rust](https://img.shields.io/badge/rust-stable-orange?logo=rust)](https://www.rust-lang.org)
 [![memory safety](https://img.shields.io/badge/memory%20safety-100%25%20safe%20Rust-success.svg)](https://github.com/rust-secure-code/safety-dance/)
@@ -19,22 +21,19 @@
 
 ---
 
-> **Status, 2026-09-22:** early. `macula-pq-kx` is complete and supplies
-> **`SecP384r1MLKEM1024`, which no rustls provider offers**: not `ring`,
-> not `aws-lc-rs`, not rustls itself. `macula-keccak` is complete and
-> passes NIST's own ACVP vectors for SHA3-256/512 and SHAKE128/256,
-> including the Monte Carlo chains. **`macula-mlkem` passes every NIST
-> ACVP vector for ML-KEM-512, -768 and -1024**, implicit rejection and key
-> checks included, draws its seeds from the OS, and has been timed at
-> ML-KEM-768 and -1024: no leak detected (see [What is not
-> claimed](#what-is-not-claimed) for exactly what that means). It wipes
-> its secrets when they are dropped, measured on the heap, and both of
-> `macula-pq-kx`'s hybrids run on it.
-> **`macula-pq` hands out TLS configuration builders locked to
-> `SecP384r1MLKEM1024` then `SecP256r1MLKEM768`, both on our ML-KEM, and
-> nothing classical**; nothing uses them yet. Every crate carries `publish =
-> false` and nothing has been released. See [Status](#status) for what is
-> done and what is not.
+> **Status, 2026-09-22:** 0.1.0, the first release, and early.
+> **`macula-pq` hands out rustls configuration builders locked to
+> `SecP384r1MLKEM1024` then `SecP256r1MLKEM768`, both on this project's
+> own ML-KEM, and nothing classical.** No rustls provider offers
+> `SecP384r1MLKEM1024`: not `ring`, not `aws-lc-rs`, not rustls itself.
+> **`macula-mlkem` passes every NIST ACVP vector for ML-KEM-512, -768 and
+> -1024**, draws its seeds from the OS, wipes its secrets, and has been
+> timed at ML-KEM-768 and -1024: no leak detected (see [What is not
+> claimed](#what-is-not-claimed) for exactly what that means).
+> `macula-keccak` passes NIST's ACVP vectors for SHA3-256/512 and
+> SHAKE128/256, including the Monte Carlo chains. Nothing uses
+> `macula-pq` yet: moving `macula_quic` and `macula-rust` onto it is next.
+> See [Status](#status).
 
 ## What is this?
 
@@ -58,10 +57,50 @@ better.
 `ssl` does, from OTP 28.4, but **macula's transport is QUIC through a
 Rust NIF, and OTP's `ssl` does not do QUIC**: the TLS inside it is
 rustls, so the group has to exist as a rustls provider. Building the
-primitives here
-rather than depending on them also means the post-quantum parts of
+primitives here rather than depending on them also means the
+post-quantum parts of
 [Macula](https://github.com/macula-io/macula) are not supplied by an
 external library, which is the reason for the boundary described below.
+
+## Getting started
+
+```toml
+[dependencies]
+macula-pq = "0.1"
+rustls = { version = "0.23", default-features = false, features = ["std"] }
+```
+
+```rust
+use rustls::pki_types::{CertificateDer, PrivateKeyDer};
+use rustls::{ClientConfig, RootCertStore, ServerConfig};
+
+/// A client: you choose how the server is verified.
+fn client(roots: RootCertStore) -> ClientConfig {
+    let mut config = macula_pq::client_builder()
+        .with_root_certificates(roots)
+        .with_no_client_auth();
+    config.alpn_protocols = vec![b"macula".to_vec()];
+    config
+}
+
+/// A server: you choose client authentication and the certificate.
+fn server(
+    chain: Vec<CertificateDer<'static>>,
+    key: PrivateKeyDer<'static>,
+) -> Result<ServerConfig, rustls::Error> {
+    macula_pq::server_builder()
+        .with_no_client_auth()
+        .with_single_cert(chain, key)
+}
+```
+
+Both offer `SecP384r1MLKEM1024`, then `SecP256r1MLKEM768`, and nothing
+else; everything else about the configuration is yours. For QUIC, hand
+the result to quinn as usual. This code is compiled by `macula-pq`'s tests,
+and [the crate documentation](https://docs.rs/macula-pq) runs a fuller
+example.
+
+## The crates
 
 **Depend on `macula-pq`.** The other three are implementation crates. They
 are published only because cargo refuses to publish a crate whose path
@@ -79,10 +118,9 @@ ML-KEM, since TLS uses SHA-2.
 ⛔ **It is four crates rather than one with modules because the layering is
 load-bearing:**
 
-    macula-keccak   zeroize only
-    macula-mlkem    keccak + OS randomness + zeroize    no rustls
-    macula-pq-kx    mlkem + rustls + aws-lc-rs
-    macula-pq       facade
+<p align="center">
+  <img src="assets/crate-layering.svg" alt="macula-pq depends on macula-pq-kx, which adds rustls and aws-lc-rs; macula-pq-kx depends on macula-mlkem, which depends on macula-keccak; neither of those two depends on rustls or anything TLS" width="640">
+</p>
 
 Collapse that and anyone wanting ML-KEM is forced to take rustls and
 `aws-lc-rs` with it. **If `macula-mlkem` ever gains a rustls dependency
@@ -99,9 +137,15 @@ the profile's declaration could not be true on macula's transport.
 
 ## Features
 
-- **`SecP384r1MLKEM1024` as a rustls `SupportedKxGroup`**, composed per
-  [draft-ietf-tls-ecdhe-mlkem](https://datatracker.ietf.org/doc/html/draft-ietf-tls-ecdhe-mlkem-05),
-  code point `0x11ED`.
+- **rustls configuration builders locked to post-quantum key exchange.**
+  `client_builder()` and `server_builder()` fix the groups and TLS 1.3;
+  a classical-only peer cannot connect.
+- **`SecP384r1MLKEM1024` and `SecP256r1MLKEM768` as rustls key exchange
+  groups**, composed per
+  [draft-ietf-tls-ecdhe-mlkem](https://datatracker.ietf.org/doc/html/draft-ietf-tls-ecdhe-mlkem-05);
+  `SecP384r1MLKEM1024` is code point `0x11ED`.
+- **ML-KEM-512, -768 and -1024 (FIPS 203)**, seeds from the OS, secrets
+  wiped when dropped, timing measured with a calibrated harness.
 - **SHA3-256, SHA3-512, SHAKE128 and SHAKE256**, with an incremental
   SHAKE128 reader for multi-block squeezing.
 - **Byte-exact verification against the standards bodies' own test
@@ -149,10 +193,9 @@ to the method everything else depends on.
 
 ## How this is consumed
 
-    macula_quic   ->  macula-pq        (+ rustls, quinn: the envelope)
-    macula-rust   ->  macula-pq
-    macula-pq     ->  aws-lc-rs        internal, invisible to consumers
-                  ->  macula-keccak, macula-mlkem, macula-pq-kx
+<p align="center">
+  <img src="assets/consumption.svg" alt="macula_quic and macula-rust depend on macula-pq alone for key exchange, with rustls and quinn as their envelope; behind macula-pq sit its internal crates and aws-lc-rs, which consumers never see" width="680">
+</p>
 
 **`aws-lc-rs` sits behind the facade, not beside it.** A consumer depends
 on `macula-pq` and nothing else for crypto: no provider selection, no
@@ -176,17 +219,20 @@ Those are follow-ups in those repositories and neither is done.
 ./scripts/test.sh
 ```
 
-Seven gates: `cargo test`, `cargo test --release`, `cargo clippy -D
-warnings` twice, `scripts/check-packaging.sh`, `scripts/check-readme.sh`,
-`cargo fmt --check`. CI runs this same script rather than restating the
-gates, so the two cannot drift.
+Eight gates: `cargo test`, `cargo test --release`, `cargo clippy -D
+warnings` twice, `cargo doc` with warnings denied,
+`scripts/check-packaging.sh`, `scripts/check-readme.sh`, `cargo fmt
+--check`. CI runs this same script rather than restating the gates, so
+the two cannot drift. Every public item must be documented: each crate
+carries `#![warn(missing_docs)]`, which clippy's `-D warnings` makes an
+error.
 
-**Packaging is checked on every commit, not at the first release.**
+**Packaging is checked on every commit, not at release time.**
 [`check-packaging.sh`](scripts/check-packaging.sh) packages all four
-crates for crates.io, offline and without building, from a copy of the
-tree with `publish = false` removed: cargo will not package a crate
-against a dependency marked unpublishable, so the check cannot run in the
-tree itself while that flag is on.
+crates for crates.io, offline and without building. It works on a copy
+with any `publish = false` removed, because cargo will not package a
+crate against a dependency marked unpublishable, as a new crate is until
+its first release.
 
 **Clippy runs twice because tests and consumers build different
 libraries.** `macula-mlkem`'s own tests switch on its `internal` feature,
@@ -327,20 +373,24 @@ counterpart; it is checked against OTP's `ssl`, outside the gate (see
   and a classical-only peer cannot agree with it in either role.
 - Interop with OTP 28.4.2's `ssl`, outside the gate: both hybrids agree in
   both roles; a classical-only peer is refused in both.
-- The gate: seven checks, two build profiles, one script, run by the
+- The gate: eight checks, two build profiles, one script, run by the
   pre-commit hook and by CI.
+
+- Released to crates.io as 0.1.0: all four crates, from one tag. See
+  [CHANGELOG.md](CHANGELOG.md).
 
 **Not done**
 
 - Migrating `macula_quic` and `macula-rust` onto the facade.
-- Nothing is published; every crate carries `publish = false`.
-  Releasing is a `vX.Y.Z` tag:
-  [`release-core.yml`](.github/workflows/release-core.yml)'s `verify` job
-  checks all four are publishable at the tag's version, runs the gate and
-  a dry-run publish, then `publish` runs in the `crates-io` environment:
-  the tag is the release, with no approval step. That environment admits
-  only `v*.*.*` tags and holds the crates.io token, so nothing else can
-  read it.
+
+## Releasing
+
+A `vX.Y.Z` tag is the release.
+[`release-core.yml`](.github/workflows/release-core.yml)'s `verify` job
+checks all four crates are publishable at the tag's version, runs the gate
+and a dry-run publish, then `publish` runs in the `crates-io` environment
+with no approval step. That environment admits only `v*.*.*` tags and
+holds the crates.io token, so nothing else can read it.
 
 ## What is not claimed
 
@@ -381,6 +431,14 @@ determined or tested.
 | [macula-rust](https://github.com/macula-io/macula-rust) | Rust SDK, an intended consumer of this facade |
 | [macula-station](https://github.com/macula-io/macula-station) | The station: DHT, SWIM, routing, peering |
 | [macula-realm](https://github.com/macula-io/macula-realm) | Managed-realm identity + certificate authority |
+
+## Contributing
+
+See [CONTRIBUTING.md](CONTRIBUTING.md) and the
+[Code of Conduct](CODE_OF_CONDUCT.md). **Report a vulnerability
+privately**, through GitHub's
+[private vulnerability reporting](https://github.com/macula-io/macula-pq/security/advisories/new),
+never in a public issue.
 
 ## License
 

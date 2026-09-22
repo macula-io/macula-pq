@@ -53,7 +53,7 @@
 //! # Verification
 //!
 //! Byte-exact against NIST's ACVP vectors, at ML-KEM-512, -768 and -1024:
-//! key generation, encapsulation, decapsulation and both key checks, 285
+//! key generation, encapsulation, decapsulation and both key checks, 240
 //! cases, with the fifteen implicit-rejection cases each identified by
 //! NIST's own label (`tests/acvp.rs`; provenance in `vectors/README.md`).
 //!
@@ -79,6 +79,7 @@
 //! public bytes by powers of two.
 
 #![forbid(unsafe_code)]
+#![warn(missing_docs)]
 
 // The seeded algorithms and the arithmetic are public only with the
 // `internal` feature, which is for testing: see `internal`'s docs.
@@ -113,13 +114,21 @@ pub use zeroize::Zeroizing;
 pub struct ParameterSet {
     /// The name the ACVP vectors use, e.g. `"ML-KEM-1024"`.
     pub name: &'static str,
+    /// `k`: the dimension of the module, the number of polynomials in a
+    /// vector and the rows and columns of the matrix `A`.
     pub k: usize,
+    /// `eta_1`: the centred binomial width for the secret `s`, the error
+    /// `e`, and encryption's `y`.
     pub eta1: usize,
+    /// `eta_2`: the centred binomial width for encryption's `e_1` and `e_2`.
     pub eta2: usize,
+    /// `d_u`: the bits kept per coefficient of `u` in the ciphertext.
     pub du: usize,
+    /// `d_v`: the bits kept per coefficient of `v` in the ciphertext.
     pub dv: usize,
 }
 
+/// ML-KEM-512, security category 1.
 pub const ML_KEM_512: ParameterSet = ParameterSet {
     name: "ML-KEM-512",
     k: 2,
@@ -128,6 +137,7 @@ pub const ML_KEM_512: ParameterSet = ParameterSet {
     du: 10,
     dv: 4,
 };
+/// ML-KEM-768, security category 3.
 pub const ML_KEM_768: ParameterSet = ParameterSet {
     name: "ML-KEM-768",
     k: 3,
@@ -136,6 +146,7 @@ pub const ML_KEM_768: ParameterSet = ParameterSet {
     du: 10,
     dv: 4,
 };
+/// ML-KEM-1024, security category 5.
 pub const ML_KEM_1024: ParameterSet = ParameterSet {
     name: "ML-KEM-1024",
     k: 4,

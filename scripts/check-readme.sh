@@ -52,7 +52,9 @@ needre  "License section"      '^## License'
 # check.
 python3 - <<'PYEOF' || fail=1
 import os, re, sys
-links = [l for l in re.findall(r'\]\((?!https?://|#)([^)]+)\)', open("README.md").read())]
+text = open("README.md").read()
+links = re.findall(r'\]\((?!https?://|#)([^)]+)\)', text)
+links += re.findall(r'(?:src|srcset)="(?!https?://)([^"]+)"', text)
 if not links:
     print("README: the link check found NO links, which means it is not working")
     sys.exit(1)
@@ -60,6 +62,25 @@ bad = [l for l in links if not os.path.exists(l)]
 for b in bad:
     print(f"README: broken link {b}")
 sys.exit(1 if bad else 0)
+PYEOF
+
+# --- content: the README's Rust code is code that compiles ---
+#
+# Every ```rust block here must appear verbatim in macula-pq/README.md,
+# which macula-pq's tests compile as a doctest. A snippet edited here and
+# not there fails this check rather than drifting from the API.
+python3 - <<'PYEOF' || fail=1
+import re, sys
+blocks = re.findall(r"```rust\n(.*?)```", open("README.md").read(), re.S)
+tested = open("macula-pq/README.md").read()
+if not blocks:
+    print("README: no ```rust block found; the getting-started code is missing")
+    sys.exit(1)
+stray = [b for b in blocks if b not in tested]
+for b in stray:
+    print("README: a rust block is not in macula-pq/README.md, so nothing compiles it:")
+    print("  " + b.splitlines()[0])
+sys.exit(1 if stray else 0)
 PYEOF
 
 # --- content: the badge's CLAIM must be true of the tree ---

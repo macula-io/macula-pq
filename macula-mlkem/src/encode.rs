@@ -91,6 +91,7 @@ pub fn decompress(d: usize, y: i16) -> i16 {
     (num >> d) as i16
 }
 
+/// [`compress`] applied to every coefficient.
 pub fn compress_poly(d: usize, f: &Poly) -> Poly {
     let mut out = [0i16; N];
     for (o, &c) in out.iter_mut().zip(f.iter()) {
@@ -99,6 +100,7 @@ pub fn compress_poly(d: usize, f: &Poly) -> Poly {
     out
 }
 
+/// [`decompress`] applied to every coefficient.
 pub fn decompress_poly(d: usize, f: &Poly) -> Poly {
     let mut out = [0i16; N];
     for (o, &c) in out.iter_mut().zip(f.iter()) {

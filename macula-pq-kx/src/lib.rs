@@ -89,6 +89,7 @@
 //! had no timing analysis. Do not describe it as constant-time.
 
 #![forbid(unsafe_code)]
+#![warn(missing_docs)]
 
 mod ml_kem;
 
