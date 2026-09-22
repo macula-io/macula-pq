@@ -6,7 +6,9 @@ from scratch on `macula-keccak`.
 ⚠ **In progress. Not released, and nothing uses it.** Today it holds the
 three parameter sets, ML-DSA-44, -65 and -87, with their key and
 signature sizes checked against FIPS 204's tables, and NIST's ACVP
-vectors. There is no key generation, signing or verification yet.
+vectors with a harness that asserts their shape: what will run, what is
+excluded and why, and every sigVer negative by its reason. There is no
+key generation, signing or verification yet.
 
 ML-DSA is not special here. FIPS 204 has several good implementations,
 OTP's `crypto` and `aws-lc-rs` among them. This one exists so the
