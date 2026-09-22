@@ -444,7 +444,12 @@ A `vX.Y.Z` tag is the release.
 runs [`check-release.sh`](scripts/check-release.sh), the gate and a
 dry-run publish, then `publish` runs in the `crates-io` environment with
 no approval step. That environment admits only `v*.*.*` tags and holds
-the crates.io token, so nothing else can read it.
+the crates.io API token, so nothing else can read it. A crate already on
+crates.io publishes by Trusted Publishing instead, with a short-lived
+token for the job's OIDC identity: every such crate accepts nothing else.
+The API token is used only for a crate crates.io has never seen, which
+Trusted Publishing cannot create
+([`publish-crates.sh`](scripts/publish-crates.sh)).
 
 **A crate still being built is withheld, and said to be.** It carries
 `publish = false` and a reason in `[package.metadata.withheld]`; the tag

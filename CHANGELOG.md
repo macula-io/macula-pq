@@ -64,6 +64,15 @@ depend on for signatures; `macula-pqc` stays the one for TLS key exchange.
   and `sign` draw from the OS, the drawn bytes becoming the seed and the
   hedge.
 
+### Releasing
+
+- Crates already on crates.io publish by Trusted Publishing, with a
+  short-lived token for the release job's OIDC identity, since each is
+  trusted-publishing-only. The API token is used only for a crate
+  crates.io has never seen, which Trusted Publishing cannot create
+  (`scripts/publish-crates.sh`). The first v0.1.2 tag published nothing:
+  crates.io refused the API token for `macula-keccak`, as it must.
+
 ### `macula-keccak`
 
 - `Shake256` absorbs its input in pieces and `finalize_xof` returns a
