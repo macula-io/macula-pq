@@ -3,18 +3,24 @@
 ML-DSA (FIPS 204), the post-quantum signature standard, being written
 from scratch on `macula-keccak`.
 
-⚠ **In progress. Not released, and nothing uses it.** Today, at
-ML-DSA-44, -65 and -87:
+⚠ **Not released, and nothing uses it yet: signing's timing has not been
+measured.** At ML-DSA-44, -65 and -87:
 
 - **Key generation**: `key_gen` draws its seed from the OS, and FIPS 204's
   key generation passes all 75 of NIST's keyGen vectors byte-exact, with
   every secret intermediate wiped.
 - **Verification**: `verify` agrees with NIST on all 135 pure sigVer
   cases, counted by NIST's reason: 27 valid, and 27 each of a modified
-  message, commitment, `z` and hint. Two hint refusals no vector reaches
-  are tested on NIST's own signatures with the fault planted.
-
-There is no signing yet.
+  message, commitment, `z` and hint. The refusals no vector reaches are
+  tested directly: two hint rules on NIST's own signatures with the fault
+  planted, and the norm bound and a third hint rule on signatures this
+  crate makes.
+- **Signing**: `sign` is hedged, drawing fresh randomness from the OS for
+  every signature, and takes the private key expanded or as its 32-byte
+  seed. All 810 pure signing cases in NIST's sigGen and sigGen-tr1 vectors
+  pass byte-exact: deterministic and hedged, both key formats, every
+  interface. Deterministic signing exists only behind the testing-only
+  `internal` feature. Every secret and every rejected attempt is wiped.
 
 ML-DSA is not special here. FIPS 204 has several good implementations,
 OTP's `crypto` and `aws-lc-rs` among them. This one exists so the

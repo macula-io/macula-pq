@@ -6,14 +6,16 @@
 //!
 //! ⚠ **ML-DSA is not special here, and this crate does not pretend it is.**
 //! FIPS 204 has several good implementations, OTP's `crypto` and `aws-lc-rs`
-//! among them. This one is written from scratch, to be verified byte-exact
-//! against NIST's own ACVP vectors before it is called done: a claim about
-//! independence and assurance, not about being first or better.
+//! among them. This one is written from scratch and verified byte-exact
+//! against NIST's own ACVP vectors: a claim about independence and
+//! assurance, not about being first or better.
 //!
-//! ⚠ **In progress.** Today this crate generates keys from the OS
-//! ([`key_gen`]) and verifies signatures ([`verify`]), both byte-exact
-//! against NIST's vectors at all three parameter sets. There is no signing
-//! yet.
+//! [`key_gen`], [`sign`] and [`verify`] are FIPS 204's Algorithms 1 to 3,
+//! at ML-DSA-44, -65 and -87. Key generation and signing draw their
+//! randomness from the OS; a private key is used either expanded or as its
+//! 32-byte seed ([`PrivateKey`]).
+//!
+//! ⚠ **Not released yet**: signing's timing has not been measured.
 //!
 //! # Scope: pure ML-DSA
 //!
@@ -59,6 +61,62 @@ pub enum Error {
     /// A context string was longer than 255 bytes, FIPS 204 Algorithms 2
     /// and 3.
     ContextTooLong,
+    /// An expanded private key was not the length its parameter set
+    /// requires.
+    WrongLength,
+}
+
+/// A private key in either of the forms FIPS 204 allows.
+#[derive(Clone, Copy)]
+pub enum PrivateKey<'a> {
+    /// The encoded private key [`key_gen`] returns, of
+    /// [`ParameterSet::private_key_len`] bytes.
+    Expanded(&'a [u8]),
+    /// The 32-byte seed `xi` it was generated from, which FIPS 204 section
+    /// 3.6.3 allows a key to be stored as. It is expanded for each
+    /// signature, and the expansion wiped.
+    Seed(&'a [u8; 32]),
+}
+
+/// FIPS 204 Algorithm 2, `ML-DSA.Sign`, hedged: the signing randomness
+/// `rnd` is drawn from the OS for every signature, so signing one message
+/// twice gives two different valid signatures.
+///
+/// `M'` is `0 || |ctx| || ctx || message`, absorbed in pieces rather than
+/// built. Errors: a context over 255 bytes, an expanded key of the wrong
+/// length, or no randomness from the OS.
+pub fn sign(
+    p: ParameterSet,
+    sk: PrivateKey,
+    message: &[u8],
+    context: &[u8],
+) -> Result<Vec<u8>, Error> {
+    sign_drawing_from(p, sk, message, context, os_random)
+}
+
+/// [`sign`] with its randomness source as a parameter, so the tests can
+/// see what is drawn and make the source fail. The context is checked
+/// before anything is drawn, in Algorithm 2's order.
+fn sign_drawing_from(
+    p: ParameterSet,
+    sk: PrivateKey,
+    message: &[u8],
+    context: &[u8],
+    mut random: impl FnMut(&mut [u8]) -> Result<(), Error>,
+) -> Result<Vec<u8>, Error> {
+    context_fits(context)?;
+    let mut rnd = Zeroizing::new([0u8; 32]);
+    random(&mut *rnd)?;
+    internal::sign_message(p, sk, message, context, &rnd)
+}
+
+/// FIPS 204 Algorithms 2 and 3, lines 1 to 3.
+pub(crate) fn context_fits(context: &[u8]) -> Result<(), Error> {
+    if context.len() > 255 {
+        Err(Error::ContextTooLong)
+    } else {
+        Ok(())
+    }
 }
 
 /// FIPS 204 Algorithm 1, `ML-DSA.KeyGen`: the seed `xi` is drawn from the
@@ -84,9 +142,7 @@ pub fn verify(
     signature: &[u8],
     context: &[u8],
 ) -> Result<bool, Error> {
-    if context.len() > 255 {
-        return Err(Error::ContextTooLong);
-    }
+    context_fits(context)?;
     Ok(internal::verify_absorbing(p, pk, signature, |h| {
         h.update(&[0, context.len() as u8]);
         h.update(context);

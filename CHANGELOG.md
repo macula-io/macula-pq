@@ -26,7 +26,11 @@ version may include a breaking change where that was the right call.
 - Verification: `verify` (FIPS 204 Algorithm 3) agrees with NIST on all
   135 pure sigVer cases, each counted under NIST's reason label. It
   returns an error for a context over 255 bytes and `false` for a key or
-  signature of the wrong length. No signing yet.
+  signature of the wrong length.
+- Signing: `sign` (FIPS 204 Algorithm 2) is hedged from the OS and takes
+  a `PrivateKey`, expanded or its 32-byte seed. All 810 pure sigGen and
+  sigGen-tr1 cases pass byte-exact. Deterministic signing is testing-only.
+  Signing's timing is not yet measured.
 
 ### `macula-keccak`
 

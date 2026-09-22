@@ -483,9 +483,10 @@ fn sig_ver_matches_acvp_every_negative_by_its_reason() {
 ///
 /// The third such refusal, a count running backwards, can only be planted
 /// without changing the hint on a polynomial with no hints after one with
-/// some, and none of NIST's 27 valid signatures has one. It needs a
-/// signature made here, so it is tested with signing, which is not built
-/// yet.
+/// some, and none of NIST's 27 valid signatures has one. It is tested in
+/// `internal.rs`, on signatures this crate makes, as is the norm bound,
+/// which every NIST "modified z" case reaches only after the commitment
+/// comparison has already refused it.
 #[test]
 fn malformed_hints_are_refused_even_when_they_decode_to_the_valid_hint() {
     let exp = expected(SIGVER);
@@ -561,4 +562,115 @@ fn malformed_hints_are_refused_even_when_they_decode_to_the_valid_hint() {
             );
         }
     }
+}
+
+/// Signs one sigGen or sigGen-tr1 case the way its group says: the
+/// private key in its format, the interface, and `rnd` (zeros when the
+/// group is deterministic).
+fn sign_case(g: &Value, t: &Value) -> Vec<u8> {
+    use macula_mldsa::PrivateKey;
+    let ps = param(g["parameterSet"].as_str().unwrap());
+    let seed: [u8; 32];
+    let expanded: Vec<u8>;
+    let sk = match g.get("keyFormat").and_then(Value::as_str) {
+        Some("seed") => {
+            seed = hex(t["seed"].as_str().unwrap()).try_into().unwrap();
+            PrivateKey::Seed(&seed)
+        }
+        Some("expanded") | None => {
+            expanded = hex(t["sk"].as_str().unwrap());
+            PrivateKey::Expanded(&expanded)
+        }
+        Some(other) => panic!("a key format this harness does not know: {other}"),
+    };
+    let rnd: [u8; 32] = if g["deterministic"] == true {
+        [0; 32]
+    } else {
+        hex(t["rnd"].as_str().unwrap()).try_into().unwrap()
+    };
+    let external_mu = g.get("externalMu").and_then(Value::as_bool) == Some(true);
+    let signed = match (g["signatureInterface"].as_str().unwrap(), external_mu) {
+        ("internal", false) => {
+            macula_mldsa::internal::sign(ps, sk, &hex(t["message"].as_str().unwrap()), &rnd)
+        }
+        ("internal", true) => {
+            let mu: [u8; 64] = hex(t["mu"].as_str().unwrap()).try_into().unwrap();
+            macula_mldsa::internal::sign_mu(ps, sk, &mu, &rnd)
+        }
+        ("external", _) => macula_mldsa::internal::sign_message(
+            ps,
+            sk,
+            &hex(t["message"].as_str().unwrap()),
+            &hex(t["context"].as_str().unwrap()),
+            &rnd,
+        ),
+        other => panic!("an interface this harness does not know: {other:?}"),
+    };
+    signed.unwrap_or_else(|e| panic!("tcId {}: signing refused ({e:?})", t["tcId"]))
+}
+
+/// Runs every pure case of a signing vector file, returning how many ran
+/// per (deterministic, key format).
+fn sig_gen_matches(dir: &str) -> BTreeMap<(bool, String), usize> {
+    let exp = expected(dir);
+    let p = vectors(dir, "prompt.json");
+    let (run, _) = pure_groups(&p);
+    let mut ran: BTreeMap<(bool, String), usize> = BTreeMap::new();
+    for g in run {
+        let set = g["parameterSet"].as_str().unwrap();
+        let deterministic = g["deterministic"] == true;
+        let format = g
+            .get("keyFormat")
+            .and_then(Value::as_str)
+            .unwrap_or("expanded");
+        let interface = g["signatureInterface"].as_str().unwrap();
+        for t in tests(g) {
+            let tc = t["tcId"].as_u64().unwrap();
+            let op = format!(
+                "signature ({interface}, {}, {format} key)",
+                if deterministic {
+                    "deterministic"
+                } else {
+                    "hedged"
+                }
+            );
+            compare(
+                set,
+                tc,
+                &op,
+                &sign_case(g, t),
+                &hex(exp[&tc]["signature"].as_str().unwrap()),
+            );
+            *ran.entry((deterministic, format.to_string())).or_default() += 1;
+        }
+    }
+    ran
+}
+
+/// FIPS 204 Algorithms 2 and 7, byte-exact on every pure sigGen case:
+/// deterministic and hedged, every interface, all three parameter sets.
+#[test]
+fn sig_gen_matches_acvp() {
+    let ran = sig_gen_matches(SIGGEN);
+    let want: BTreeMap<(bool, String), usize> = [
+        ((true, "expanded".to_string()), 135),
+        ((false, "expanded".to_string()), 135),
+    ]
+    .into();
+    assert_eq!(ran, want, "sigGen cases run, by variant and key format");
+}
+
+/// The -tr1 revision: the same signing with the private key given BOTH
+/// ways, expanded and as its 32-byte seed.
+#[test]
+fn sig_gen_tr1_matches_acvp_with_both_key_formats() {
+    let ran = sig_gen_matches(SIGGEN_TR1);
+    let want: BTreeMap<(bool, String), usize> = [
+        ((true, "expanded".to_string()), 135),
+        ((false, "expanded".to_string()), 135),
+        ((true, "seed".to_string()), 135),
+        ((false, "seed".to_string()), 135),
+    ]
+    .into();
+    assert_eq!(ran, want, "sigGen-tr1 cases run, by variant and key format");
 }

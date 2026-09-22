@@ -9,6 +9,7 @@
 use macula_keccak::{Shake128Reader, Shake256};
 use zeroize::Zeroize;
 
+use crate::encode::bit_unpack;
 use crate::poly::{from_signed, Poly, N};
 use crate::{ParameterSet, Q};
 
@@ -155,4 +156,51 @@ pub fn sample_in_ball(c_tilde: &[u8], tau: usize) -> Poly {
         };
     }
     c
+}
+
+/// FIPS 204 Algorithm 34, `ExpandMask`: `y[r] = BitUnpack(H(rho'' ||
+/// IntegerToBytes(kappa + r, 2), 32c), gamma1 - 1, gamma1)`, written into
+/// the caller's wiped array. The counter is taken mod 2^16, as
+/// `IntegerToBytes(x, 2)` does.
+pub fn expand_mask(y: &mut [Poly; L_MAX], rho_pp: &[u8; 64], kappa: u16, p: ParameterSet) {
+    let c = p.z_bits();
+    let mut v = [0u8; 32 * 20];
+    for (r, poly) in y.iter_mut().enumerate().take(p.l) {
+        let mut h = Shake256::new();
+        h.update(rho_pp);
+        h.update(&kappa.wrapping_add(r as u16).to_le_bytes());
+        h.finalize_xof().read(&mut v[..32 * c]);
+        bit_unpack(&v[..32 * c], p.gamma1, c, poly);
+    }
+    v.zeroize();
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::{ML_DSA_44, ML_DSA_87};
+
+    /// ExpandMask's counter reaches every polynomial: `y[r]` at counter
+    /// `kappa` is `y[0]` at `kappa + r`, and the next attempt's mask, at
+    /// `kappa + l`, is new. A mask that ignored the counter would repeat
+    /// every rejected attempt forever, and a signing test would hang
+    /// rather than fail; this fails.
+    #[test]
+    fn expand_mask_moves_with_its_counter() {
+        for p in [ML_DSA_44, ML_DSA_87] {
+            let seed = [0x42u8; 64];
+            let mut y = [[0i32; N]; L_MAX];
+            expand_mask(&mut y, &seed, 10, p);
+            for (r, poly) in y.iter().enumerate().take(p.l) {
+                let mut shifted = [[0i32; N]; L_MAX];
+                expand_mask(&mut shifted, &seed, 10 + r as u16, p);
+                assert_eq!(*poly, shifted[0], "{}: y[{r}]", p.name);
+            }
+            let mut next = [[0i32; N]; L_MAX];
+            expand_mask(&mut next, &seed, 10 + p.l as u16, p);
+            for (r, (a, b)) in y.iter().zip(next.iter()).enumerate().take(p.l) {
+                assert_ne!(a, b, "{}: the next attempt repeats y[{r}]", p.name);
+            }
+        }
+    }
 }

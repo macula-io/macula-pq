@@ -202,3 +202,71 @@ pub fn w1_encode_into(h: &mut macula_keccak::Shake256, w1: &[Poly; K_MAX], p: Pa
         h.update(&out[..32 * bits]);
     }
 }
+
+/// FIPS 204 Algorithm 25, `skDecode`, of a private key of the right
+/// length: `s1`, `s2` and `t0` are written into the caller's wiped arrays,
+/// and `(rho, K, tr)` returned, `K` wiped on drop.
+///
+/// The standard runs this on trusted input only, and so does this crate:
+/// a malformed key yields signatures that do not verify, not a refusal.
+pub fn sk_decode(
+    sk: &[u8],
+    p: ParameterSet,
+    s1: &mut [Poly; L_MAX],
+    s2: &mut [Poly; K_MAX],
+    t0: &mut [Poly; K_MAX],
+) -> ([u8; 32], zeroize::Zeroizing<[u8; 32]>, [u8; 64]) {
+    let rho: [u8; 32] = sk[..32].try_into().expect("32 bytes");
+    let mut key = zeroize::Zeroizing::new([0u8; 32]);
+    key.copy_from_slice(&sk[32..64]);
+    let tr: [u8; 64] = sk[64..128].try_into().expect("64 bytes");
+    let eb = p.eta_bits();
+    let d = crate::D;
+    let mut at = 128;
+    for poly in s1.iter_mut().take(p.l).chain(s2.iter_mut().take(p.k)) {
+        bit_unpack(&sk[at..at + 32 * eb], p.eta, eb, poly);
+        at += 32 * eb;
+    }
+    for poly in t0.iter_mut().take(p.k) {
+        bit_unpack(&sk[at..at + 32 * d], 1 << (d - 1), d, poly);
+        at += 32 * d;
+    }
+    debug_assert_eq!(at, sk.len());
+    (rho, key, tr)
+}
+
+/// FIPS 204 Algorithm 20, `HintBitPack`, into `y` of `omega + k` bytes, for
+/// a hint of at most `omega` ones.
+pub fn hint_bit_pack(y: &mut [u8], h: &[Poly; K_MAX], p: ParameterSet) {
+    y.fill(0);
+    let mut index = 0;
+    for (i, poly) in h.iter().enumerate().take(p.k) {
+        for (j, &bit) in poly.iter().enumerate() {
+            if bit != 0 {
+                y[index] = j as u8;
+                index += 1;
+            }
+        }
+        y[p.omega + i] = index as u8;
+    }
+}
+
+/// FIPS 204 Algorithm 26, `sigEncode`, for `z` held mod q with values in
+/// `[-gamma1 + 1, gamma1]`.
+pub fn sig_encode(
+    c_tilde: &[u8],
+    z: &[Poly; L_MAX],
+    h: &[Poly; K_MAX],
+    p: ParameterSet,
+) -> Vec<u8> {
+    let mut sig = vec![0u8; p.signature_len()];
+    let c_len = p.lambda / 4;
+    sig[..c_len].copy_from_slice(c_tilde);
+    let zb = p.z_bits();
+    for (i, poly) in z.iter().enumerate().take(p.l) {
+        let at = c_len + i * 32 * zb;
+        bit_pack(poly, p.gamma1, zb, &mut sig[at..at + 32 * zb]);
+    }
+    hint_bit_pack(&mut sig[c_len + p.l * 32 * zb..], h, p);
+    sig
+}

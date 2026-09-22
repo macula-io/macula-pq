@@ -191,6 +191,27 @@ pub fn decompose(r: i32, gamma2: i32) -> (i32, i32) {
     (r1 & !edge, r0 - (edge & 1))
 }
 
+/// FIPS 204 Algorithm 37, `HighBits`.
+#[inline(always)]
+pub fn high_bits(r: i32, gamma2: i32) -> i32 {
+    decompose(r, gamma2).0
+}
+
+/// FIPS 204 Algorithm 38, `LowBits`, as a signed integer.
+#[inline(always)]
+pub fn low_bits(r: i32, gamma2: i32) -> i32 {
+    decompose(r, gamma2).1
+}
+
+/// FIPS 204 Algorithm 39, `MakeHint`: 1 when adding `z` to `r` changes the
+/// high bits of `r`, else 0, for `z` and `r` in `[0, q)`. No branch on the
+/// values.
+#[inline(always)]
+pub fn make_hint(z: i32, r: i32, gamma2: i32) -> i32 {
+    let d = high_bits(r, gamma2) ^ high_bits(add(r, z), gamma2);
+    ((d | -d) >> 31) & 1
+}
+
 /// FIPS 204 Algorithm 40, `UseHint`, for `r` in `[0, q)` and `h` in
 /// `{0, 1}`. Used by verification, on public values only.
 pub fn use_hint(h: i32, r: i32, gamma2: i32) -> i32 {
