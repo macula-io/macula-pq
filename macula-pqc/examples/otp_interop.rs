@@ -419,11 +419,8 @@ impl Identity {
         let (_public, seed) = macula_mldsa::key_gen_seed(macula_mldsa::ML_DSA_87).unwrap();
         let (certificate, key) =
             macula_pqc::self_signed_certificate(&seed, vec!["localhost".to_string()]).unwrap();
-        let PrivateKeyDer::Pkcs8(pkcs8) = &key else {
-            unreachable!("self_signed_certificate returns PKCS#8")
-        };
         std::fs::write(dir.join("ours.der"), &certificate).unwrap();
-        std::fs::write(dir.join("ours.key.der"), pkcs8.secret_pkcs8_der()).unwrap();
+        std::fs::write(dir.join("ours.key.der"), key.secret_pkcs8_der()).unwrap();
 
         let classical_key = KeyPair::generate_for(&PKCS_ED25519).unwrap();
         let mut params = CertificateParams::new(vec!["localhost".to_string()]).unwrap();
@@ -433,7 +430,7 @@ impl Identity {
         std::fs::write(dir.join("classical.key.der"), classical_key.serialize_der()).unwrap();
         Identity {
             certificate,
-            key,
+            key: key.into(),
             classical: classical.der().clone(),
         }
     }

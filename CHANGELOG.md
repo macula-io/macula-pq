@@ -28,8 +28,10 @@ unchanged and move to 0.2.0 with it, as one version for the workspace.
   is refused when they disagree. A server built here signs its handshakes
   with ML-DSA-87, hedged from the OS.
 - `self_signed_certificate(seed, subject_alt_names)`: a self-signed
-  ML-DSA-87 certificate and its PKCS#8 key from a 32-byte seed, the form a
-  macula node keeps its TLS key in. `rcgen` builds the X.509 structure;
+  ML-DSA-87 certificate and its key from a 32-byte seed, the form a macula
+  node keeps its TLS key in. The key is a `PrivatePkcs8KeyDer`, in RFC
+  9881's seed form: `with_single_cert` takes it as `key.into()`, and a
+  caller writing it to a file needs no other form. `rcgen` builds the X.509 structure;
   the signature is `macula-mldsa`'s.
 - `KeyPossessionVerifier`: a rustls server certificate verifier for a
   self-signed ML-DSA-87 certificate, the one a macula client dials a

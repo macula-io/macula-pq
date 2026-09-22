@@ -42,7 +42,7 @@
 //! // A server: you choose client authentication and the certificate.
 //! let server = macula_pqc::server_builder()
 //!     .with_no_client_auth()
-//!     .with_single_cert(vec![certificate], private_key)?;
+//!     .with_single_cert(vec![certificate], private_key.into())?;
 //!
 //! // Both offer SecP384r1MLKEM1024, then SecP256r1MLKEM768, and nothing
 //! // else, and both verify ML-DSA-87 signatures and nothing else.
@@ -527,7 +527,7 @@ mod tests {
             let (_public, seed) = macula_mldsa::key_gen_seed(macula_mldsa::ML_DSA_87).unwrap();
             let (certificate, key) =
                 self_signed_certificate(&seed, vec!["localhost".to_string()]).unwrap();
-            Identity::of(certificate, key)
+            Identity::of(certificate, key.into())
         }
 
         /// A classical identity, ECDSA P-256, for the negative control.

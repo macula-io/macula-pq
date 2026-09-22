@@ -301,11 +301,12 @@ fn pkcs8_of_seed(seed: &[u8; 32]) -> Zeroizing<Vec<u8>> {
 // ---------------------------------------------------------------------------------------------------------------------
 
 /// A self-signed ML-DSA-87 certificate for the key a seed derives, naming `subject_alt_names`, and the key as PKCS#8
-/// for [`crate::server_builder`]'s `with_single_cert`. The certificate's signature is `macula-mldsa`'s.
+/// in RFC 9881's `seed` form, for [`crate::server_builder`]'s `with_single_cert` (as `key.into()`) or for a file.
+/// The certificate's signature is `macula-mldsa`'s.
 pub fn self_signed_certificate(
     seed: &[u8; 32],
     subject_alt_names: Vec<String>,
-) -> Result<(CertificateDer<'static>, PrivateKeyDer<'static>), Error> {
+) -> Result<(CertificateDer<'static>, PrivatePkcs8KeyDer<'static>), Error> {
     let key = Mldsa87Key::new(Secret::Seed(Zeroizing::new(*seed)))?;
     let params = rcgen::CertificateParams::new(subject_alt_names)
         .map_err(|e| Error::General(format!("certificate names: {e}")))?;
@@ -315,7 +316,7 @@ pub fn self_signed_certificate(
     let pkcs8 = pkcs8_of_seed(seed);
     Ok((
         certificate.der().clone(),
-        PrivatePkcs8KeyDer::from(pkcs8.to_vec()).into(),
+        PrivatePkcs8KeyDer::from(pkcs8.to_vec()),
     ))
 }
 
@@ -503,7 +504,7 @@ mod tests {
             found,
             "the certificate does not carry the seed's SubjectPublicKeyInfo"
         );
-        let loaded = KeyLoader.load_private_key(private_key).unwrap();
+        let loaded = KeyLoader.load_private_key(private_key.into()).unwrap();
         assert_eq!(loaded.public_key().unwrap().as_ref(), spki.as_slice());
     }
 

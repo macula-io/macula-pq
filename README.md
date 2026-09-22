@@ -80,13 +80,13 @@ rustls = { version = "0.23", default-features = false, features = ["std"] }
 ```
 
 ```rust
-use rustls::pki_types::{CertificateDer, PrivateKeyDer};
+use rustls::pki_types::{CertificateDer, PrivateKeyDer, PrivatePkcs8KeyDer};
 use rustls::{ClientConfig, RootCertStore, ServerConfig};
 
 /// A certificate and key: ML-DSA-87, self-signed, from a 32-byte seed.
 fn identity(
     seed: &[u8; 32],
-) -> Result<(CertificateDer<'static>, PrivateKeyDer<'static>), rustls::Error> {
+) -> Result<(CertificateDer<'static>, PrivatePkcs8KeyDer<'static>), rustls::Error> {
     macula_pqc::self_signed_certificate(seed, vec!["localhost".to_string()])
 }
 
