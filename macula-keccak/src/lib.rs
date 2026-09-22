@@ -1,10 +1,11 @@
 //! Keccak-f\[1600\], SHA3-256/512 and SHAKE128/256.
 //!
-//! # Why this is built before ML-KEM
+//! # Why this is built here
 //!
-//! FIPS 203 is built on SHA3-256, SHA3-512, SHAKE128 and SHAKE256.
-//! Implementing ML-KEM while taking Keccak from a third party would
-//! relocate the dependency rather than remove it.
+//! FIPS 203 (ML-KEM) is built on SHA3-256, SHA3-512, SHAKE128 and
+//! SHAKE256, and FIPS 204 (ML-DSA) on SHAKE128 and SHAKE256. Implementing
+//! either while taking Keccak from a third party would relocate the
+//! dependency rather than remove it.
 //!
 //! # Timing: an argument from the algorithm's shape
 //!
@@ -30,8 +31,9 @@
 //! The sponge state after absorbing a short message can be run backwards
 //! to it, so when the message is secret, so is the state. The one-shot
 //! functions wipe their state, and the padded final block, before
-//! returning; [`Shake128Reader`] wipes its state when dropped. Outputs are
-//! the caller's to wipe.
+//! returning. [`Shake128Reader`], [`Shake256`] and [`Shake256Reader`] wipe
+//! their state and any buffered block when dropped. Outputs are the
+//! caller's to wipe.
 //!
 //! # Verification
 //!
@@ -43,7 +45,7 @@
 #![forbid(unsafe_code)]
 #![warn(missing_docs)]
 
-use zeroize::{Zeroize, ZeroizeOnDrop, Zeroizing};
+use zeroize::{Zeroize, ZeroizeOnDrop};
 
 /// Rate in bytes for each function, from FIPS 202: rate = 200 - 2 * (security strength / 8).
 const SHA3_256_RATE: usize = 136;
@@ -58,25 +60,25 @@ const SHAKE_PAD: u8 = 0x1f;
 /// SHA3-256.
 pub fn sha3_256(msg: &[u8]) -> [u8; 32] {
     let mut out = [0u8; 32];
-    sponge(msg, SHA3_256_RATE, SHA3_PAD, &mut out);
+    sponge::<SHA3_256_RATE>(msg, SHA3_PAD, &mut out);
     out
 }
 
 /// SHA3-512.
 pub fn sha3_512(msg: &[u8]) -> [u8; 64] {
     let mut out = [0u8; 64];
-    sponge(msg, SHA3_512_RATE, SHA3_PAD, &mut out);
+    sponge::<SHA3_512_RATE>(msg, SHA3_PAD, &mut out);
     out
 }
 
 /// SHAKE128 as a one-shot XOF of the caller's chosen length.
 pub fn shake128(msg: &[u8], out: &mut [u8]) {
-    sponge(msg, SHAKE128_RATE, SHAKE_PAD, out);
+    sponge::<SHAKE128_RATE>(msg, SHAKE_PAD, out);
 }
 
 /// SHAKE256 as a one-shot XOF of the caller's chosen length.
 pub fn shake256(msg: &[u8], out: &mut [u8]) {
-    sponge(msg, SHAKE256_RATE, SHAKE_PAD, out);
+    sponge::<SHAKE256_RATE>(msg, SHAKE_PAD, out);
 }
 
 /// An incremental SHAKE128 reader.
@@ -86,96 +88,196 @@ pub fn shake256(msg: &[u8], out: &mut [u8]) {
 /// out-of-range samples. So the sponge state has to be carried across
 /// calls, which is the part of an XOF that goes wrong and the part the
 /// `-FIPS202` vectors never reach.
-pub struct Shake128Reader {
-    state: [u64; 25],
-    buf: [u8; SHAKE128_RATE],
-    /// Bytes of `buf` already handed out. `SHAKE128_RATE` means "empty".
-    used: usize,
-}
-
-impl Drop for Shake128Reader {
-    fn drop(&mut self) {
-        self.state.zeroize();
-        self.buf.zeroize();
-    }
-}
+pub struct Shake128Reader(Squeeze<SHAKE128_RATE>);
 
 impl ZeroizeOnDrop for Shake128Reader {}
 
 impl Shake128Reader {
     /// Absorb `msg` and prepare to squeeze.
     pub fn new(msg: &[u8]) -> Self {
-        let mut state = [0u64; 25];
-        absorb(&mut state, msg, SHAKE128_RATE, SHAKE_PAD);
-        // The first block comes from the post-absorb state, with no
-        // further permutation. See the note in `sponge`.
-        let mut buf = [0u8; SHAKE128_RATE];
-        squeeze_block(&state, &mut buf);
-        Self {
-            state,
-            buf,
-            used: 0,
-        }
+        let mut a = Absorb::<SHAKE128_RATE>::new();
+        a.update(msg);
+        Self(Squeeze::from_absorbed(a.finish(SHAKE_PAD)))
     }
 
     /// Squeeze the next `out.len()` bytes, continuing where the last call
     /// stopped.
     pub fn read(&mut self, out: &mut [u8]) {
-        let mut done = 0;
-        while done < out.len() {
-            if self.used == SHAKE128_RATE {
-                keccak_f1600(&mut self.state);
-                squeeze_block(&self.state, &mut self.buf);
-                self.used = 0;
-            }
-            let take = core::cmp::min(SHAKE128_RATE - self.used, out.len() - done);
-            out[done..done + take].copy_from_slice(&self.buf[self.used..self.used + take]);
-            self.used += take;
-            done += take;
-        }
+        self.0.read(out);
+    }
+}
+
+/// SHAKE256, absorbing its input in pieces.
+///
+/// ML-DSA hashes several inputs as one message: a secret key with its
+/// signing randomness, or a public-key hash with a message of any length.
+/// Absorbing them piece by piece means neither a secret nor a long message
+/// is copied into a concatenation buffer, which for a secret would be one
+/// more thing to wipe. Pieces of any size, empty ones included, give the
+/// same output as the one-shot [`shake256`] over their concatenation.
+pub struct Shake256(Absorb<SHAKE256_RATE>);
+
+impl ZeroizeOnDrop for Shake256 {}
+
+impl Default for Shake256 {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl Shake256 {
+    /// An empty SHAKE256, ready to absorb.
+    pub fn new() -> Self {
+        Self(Absorb::new())
+    }
+
+    /// Absorb the next piece of the input.
+    pub fn update(&mut self, piece: &[u8]) {
+        self.0.update(piece);
+    }
+
+    /// Finish absorbing and start squeezing.
+    pub fn finalize_xof(self) -> Shake256Reader {
+        Shake256Reader(Squeeze::from_absorbed(self.0.finish(SHAKE_PAD)))
+    }
+}
+
+/// An incremental SHAKE256 reader, from [`Shake256::finalize_xof`].
+///
+/// ML-DSA squeezes SHAKE256 as far as its rejection sampling asks, when it
+/// samples its secret vectors and its challenge.
+pub struct Shake256Reader(Squeeze<SHAKE256_RATE>);
+
+impl ZeroizeOnDrop for Shake256Reader {}
+
+impl Shake256Reader {
+    /// Squeeze the next `out.len()` bytes, continuing where the last call
+    /// stopped.
+    pub fn read(&mut self, out: &mut [u8]) {
+        self.0.read(out);
     }
 }
 
 // ---------------------------------------------------------------------
 // The sponge
 // ---------------------------------------------------------------------
+//
+// ONE absorbing half and ONE squeezing half, generic over the rate, serve
+// every function above: the one-shot hashes, both readers and the
+// incremental SHAKE256. A second absorb for the incremental case would be
+// a second copy of the padding rule, and the two could disagree on
+// exactly the inputs that end on a block boundary.
 
-fn sponge(msg: &[u8], rate: usize, pad: u8, out: &mut [u8]) {
-    let mut state = Zeroizing::new([0u64; 25]);
-    absorb(&mut state, msg, rate, pad);
-    // ⚠ `absorb` ENDS with a permutation, so the first output block comes
-    // from the state as it stands. Permuting again here would make every
-    // first block the SECOND block, which is wrong for every input and
-    // was this crate's first bug.
-    let mut block = Zeroizing::new([0u8; 200]);
-    let mut done = 0;
-    loop {
-        squeeze_block(&state, &mut block[..rate]);
-        let take = core::cmp::min(rate, out.len() - done);
-        out[done..done + take].copy_from_slice(&block[..take]);
-        done += take;
-        if done >= out.len() {
-            return;
-        }
-        keccak_f1600(&mut state);
+fn sponge<const RATE: usize>(msg: &[u8], pad: u8, out: &mut [u8]) {
+    let mut a = Absorb::<RATE>::new();
+    a.update(msg);
+    let mut s = Squeeze::<RATE>::from_absorbed(a.finish(pad));
+    s.read(out);
+}
+
+/// The absorbing half: whole blocks are XORed in and permuted as they
+/// fill; a partial block waits in `block` for the next piece or the
+/// padding.
+struct Absorb<const RATE: usize> {
+    state: [u64; 25],
+    block: [u8; RATE],
+    /// Bytes of `block` filled, always below `RATE` between calls: a full
+    /// block is absorbed at once.
+    filled: usize,
+}
+
+impl<const RATE: usize> Drop for Absorb<RATE> {
+    fn drop(&mut self) {
+        self.state.zeroize();
+        self.block.zeroize();
     }
 }
 
-/// Absorb the whole message and apply the pad10*1 rule with the domain
-/// separation suffix, FIPS 202 section 5.1.
-fn absorb(state: &mut [u64; 25], msg: &[u8], rate: usize, pad: u8) {
-    let mut chunks = msg.chunks_exact(rate);
-    for chunk in &mut chunks {
-        xor_block(state, chunk);
-        keccak_f1600(state);
+impl<const RATE: usize> Absorb<RATE> {
+    fn new() -> Self {
+        Self {
+            state: [0u64; 25],
+            block: [0u8; RATE],
+            filled: 0,
+        }
     }
-    let tail = chunks.remainder();
-    let mut last = Zeroizing::new([0u8; 200]);
-    last[..tail.len()].copy_from_slice(tail);
-    last[tail.len()] ^= pad;
-    last[rate - 1] ^= 0x80;
-    xor_block(state, &last[..rate]);
-    keccak_f1600(state);
+
+    fn update(&mut self, mut piece: &[u8]) {
+        while !piece.is_empty() {
+            let take = core::cmp::min(RATE - self.filled, piece.len());
+            self.block[self.filled..self.filled + take].copy_from_slice(&piece[..take]);
+            self.filled += take;
+            piece = &piece[take..];
+            if self.filled == RATE {
+                xor_block(&mut self.state, &self.block);
+                keccak_f1600(&mut self.state);
+                self.filled = 0;
+            }
+        }
+    }
+
+    /// Apply the pad10*1 rule with the domain separation suffix, FIPS 202
+    /// section 5.1, and absorb the final block. The returned state is the
+    /// caller's to wipe; this one wipes itself as it drops.
+    fn finish(mut self, pad: u8) -> [u64; 25] {
+        let filled = self.filled;
+        self.block[filled..].fill(0);
+        self.block[filled] ^= pad;
+        self.block[RATE - 1] ^= 0x80;
+        let mut state = self.state;
+        xor_block(&mut state, &self.block);
+        keccak_f1600(&mut state);
+        state
+    }
+}
+
+/// The squeezing half.
+struct Squeeze<const RATE: usize> {
+    state: [u64; 25],
+    buf: [u8; RATE],
+    /// Bytes of `buf` already handed out. `RATE` means "empty".
+    used: usize,
+}
+
+impl<const RATE: usize> Drop for Squeeze<RATE> {
+    fn drop(&mut self) {
+        self.state.zeroize();
+        self.buf.zeroize();
+    }
+}
+
+impl<const RATE: usize> Squeeze<RATE> {
+    /// ⚠ `Absorb::finish` ENDS with a permutation, so the first output
+    /// block comes from the state as it stands. Permuting again here would
+    /// make every first block the SECOND block, which is wrong for every
+    /// input and was this crate's first bug.
+    fn from_absorbed(mut state: [u64; 25]) -> Self {
+        let mut buf = [0u8; RATE];
+        squeeze_block(&state, &mut buf);
+        let s = Self {
+            state,
+            buf,
+            used: 0,
+        };
+        state.zeroize();
+        buf.zeroize();
+        s
+    }
+
+    fn read(&mut self, out: &mut [u8]) {
+        let mut done = 0;
+        while done < out.len() {
+            if self.used == RATE {
+                keccak_f1600(&mut self.state);
+                squeeze_block(&self.state, &mut self.buf);
+                self.used = 0;
+            }
+            let take = core::cmp::min(RATE - self.used, out.len() - done);
+            out[done..done + take].copy_from_slice(&self.buf[self.used..self.used + take]);
+            self.used += take;
+            done += take;
+        }
+    }
 }
 
 fn xor_block(state: &mut [u64; 25], block: &[u8]) {

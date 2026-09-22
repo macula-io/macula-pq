@@ -9,3 +9,13 @@ fn the_reader_wipes_itself_on_drop() {
     fn wipes_on_drop<T: zeroize::ZeroizeOnDrop>() {}
     wipes_on_drop::<macula_keccak::Shake128Reader>();
 }
+
+/// The absorbing SHAKE256 holds the state and a partial block of what it
+/// was given, which in ML-DSA is a secret key; its reader holds the state
+/// it squeezes from. Both wipe themselves when dropped.
+#[test]
+fn shake256_and_its_reader_wipe_themselves_on_drop() {
+    fn wipes_on_drop<T: zeroize::ZeroizeOnDrop>() {}
+    wipes_on_drop::<macula_keccak::Shake256>();
+    wipes_on_drop::<macula_keccak::Shake256Reader>();
+}

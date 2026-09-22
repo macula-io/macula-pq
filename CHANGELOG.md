@@ -9,6 +9,24 @@ withheld from a release, and its section says so. Format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Pre-1.0: a minor
 version may include a breaking change where that was the right call.
 
+## [Unreleased]
+
+### The old names are gone
+
+- `macula-pq` and `macula-pq-kx` 0.1.0 are deleted from crates.io, after
+  both consumers, `macula_quic` and `macula-rust`, moved to `macula-pqc`
+  0.1 on their default branches.
+
+### `macula-keccak`
+
+- `Shake256` absorbs its input in pieces and `finalize_xof` returns a
+  `Shake256Reader` that squeezes in pieces, both wiped on drop. ML-DSA
+  needs both. Every byte-aligned NIST SHAKE256 vector is run again
+  absorbed and squeezed in chunk sizes around the 136-byte rate.
+- One absorbing and one squeezing sponge, generic over the rate, now
+  serve every function, the one-shot hashes included, so the padding
+  rule exists once.
+
 ## [0.1.1] - 2026-09-22
 
 The first release under the new names. No API changes.

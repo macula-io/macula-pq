@@ -22,7 +22,8 @@
 ---
 
 > **Status, 2026-09-22:** early. 0.1.1 is the first release under the name
-> `macula-pqc`; 0.1.0 was released as `macula-pq`.
+> `macula-pqc`; 0.1.0 was released as `macula-pq`, since deleted from
+> crates.io.
 > **`macula-pqc` hands out rustls configuration builders locked to
 > `SecP384r1MLKEM1024` then `SecP256r1MLKEM768`, both on this project's
 > own ML-KEM, and nothing classical.** No rustls provider offers
@@ -33,8 +34,8 @@
 > claimed](#what-is-not-claimed) for exactly what that means).
 > `macula-keccak` passes NIST's ACVP vectors for SHA3-256/512 and
 > SHAKE128/256, including the Monte Carlo chains. `macula_quic` and
-> `macula-rust` key-exchange through it on their default branches, still
-> under the old name `macula-pq` 0.1.0, and neither has released that.
+> `macula-rust` key-exchange through `macula-pqc` 0.1 on their default
+> branches, and neither has released that yet.
 > `macula-mldsa`, ML-DSA, is being built. See [Status](#status).
 
 ## What is this?
@@ -112,7 +113,7 @@ ML-KEM and ML-DSA, since TLS uses SHA-2.
 
 | Crate | What it is | State |
 |---|---|---|
-| **`macula-pqc`** | **The facade. This is what you depend on.** | `client_builder()` / `server_builder()`: locked to our two hybrids, nothing classical; used by `macula_quic` and `macula-rust` on their default branches under the old name `macula-pq` 0.1.0, in neither's release yet |
+| **`macula-pqc`** | **The facade. This is what you depend on.** | `client_builder()` / `server_builder()`: locked to our two hybrids, nothing classical; used by `macula_quic` and `macula-rust` on their default branches, in neither's release yet |
 | `macula-keccak` | Keccak-f[1600], SHA3-256/512, SHAKE128/256 | complete, NIST ACVP vectors passing |
 | `macula-mlkem` | ML-KEM (FIPS 203) | complete: NIST ACVP vectors passing, seeds from the OS, secrets wiped, timed |
 | `macula-mldsa` | ML-DSA (FIPS 204), signatures | in progress, not released, used by nothing: parameter sets and NIST's vectors, no algorithm yet |
@@ -211,11 +212,10 @@ on `macula-pqc` and nothing else for crypto: no provider selection, no
    facade's default-provider line and the two ECDH halves in
    `macula-pqc-kx`.
 
-⚠ **THIS IS THE SHAPE ON BOTH CONSUMERS' DEFAULT BRANCHES, NOT IN A
-RELEASE OF EITHER, AND UNDER THE OLD NAME.** `macula_quic` and
-`macula-rust` take their key exchange from the facade's builders and
-select no rustls provider of their own, but they depend on `macula-pq`
-0.1.0, and switch to `macula-pqc` 0.1.1 next.
+⚠ **THIS IS THE SHAPE ON BOTH CONSUMERS' DEFAULT BRANCHES, NOT YET IN
+A RELEASE OF EITHER.** `macula_quic` and `macula-rust` depend on
+`macula-pqc` 0.1, take their key exchange from its builders, and select
+no rustls provider of their own.
 
 ## Testing
 
@@ -356,7 +356,9 @@ counterpart; it is checked against OTP's `ssl`, outside the gate (see
 **Done**
 
 - `macula-keccak`: SHA3-256/512, SHAKE128/256, incremental SHAKE128
-  reader; ACVP AFT, VOT and MCT vectors, plus FIPS 202 known answers.
+  squeezing and SHAKE256 absorbing and squeezing; ACVP AFT, VOT and MCT
+  vectors, plus FIPS 202 known answers, and every SHAKE256 vector again
+  in pieces.
 - `macula-pqc-kx`: `SecP384r1MLKEM1024` and `SecP256r1MLKEM768`, both on
   `macula-mlkem`, verified differentially against rustls's
   `SECP256R1MLKEM768` and against `aws-lc-rs`'s ML-KEM-768 and -1024.
@@ -385,16 +387,15 @@ counterpart; it is checked against OTP's `ssl`, outside the gate (see
 - Released to crates.io as 0.1.0, under the names of the time:
   `macula-pq`, `macula-pq-kx`, `macula-mlkem` and `macula-keccak`, from
   one tag; and as 0.1.1 under the new names, `macula-pqc` and
-  `macula-pqc-kx`, with `macula-mldsa` withheld. See
+  `macula-pqc-kx`, with `macula-mldsa` withheld. `macula-pq` and
+  `macula-pq-kx` have since been deleted from crates.io. See
   [CHANGELOG.md](CHANGELOG.md).
 
-- `macula_quic` (in `macula`) and `macula-rust` key-exchange through the
-  facade on their default branches, as `macula-pq` 0.1.0; neither has
-  released it.
+- `macula_quic` (in `macula`) and `macula-rust` key-exchange through
+  `macula-pqc` 0.1 on their default branches; neither has released it.
 
 **Not done**
 
-- Moving both consumers from `macula-pq` 0.1.0 onto `macula-pqc`.
 - `macula-mldsa`: ML-DSA, the signature half, is being built. Nothing
   uses it and it is not released.
 

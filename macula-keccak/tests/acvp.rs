@@ -41,7 +41,7 @@
 use std::collections::BTreeMap;
 use std::path::PathBuf;
 
-use macula_keccak::{sha3_256, sha3_512, shake128, shake256, Shake128Reader};
+use macula_keccak::{sha3_256, sha3_512, shake128, shake256, Shake128Reader, Shake256};
 use serde_json::Value;
 
 fn vectors(dir: &str, file: &str) -> Value {
@@ -252,6 +252,44 @@ fn incremental_reader_agrees_with_one_shot_across_block_boundaries() {
                 off += n;
             }
             assert_eq!(got, want, "total {total}, chunk {chunk}");
+        }
+    }
+}
+
+/// SHAKE256 absorbed and squeezed in pieces, the way ML-DSA uses it.
+fn shake256_in_pieces(msg: &[u8], out_len: usize, absorb: usize, squeeze: usize) -> Vec<u8> {
+    let mut h = Shake256::new();
+    // An empty update between pieces must change nothing.
+    h.update(&[]);
+    for piece in msg.chunks(absorb) {
+        h.update(piece);
+        h.update(&[]);
+    }
+    let mut r = h.finalize_xof();
+    let mut out = vec![0u8; out_len];
+    for piece in out.chunks_mut(squeeze) {
+        r.read(piece);
+    }
+    out
+}
+
+/// ⛔ ML-DSA hashes through SHAKE256 in pieces on both sides: it absorbs
+/// a secret key, its randomness and a message as separate inputs rather
+/// than concatenating them into a buffer that would need wiping, and it
+/// squeezes as much as rejection sampling asks for. So every byte-aligned
+/// SHAKE256 vector NIST publishes is run again here, absorbed and squeezed
+/// in chunk sizes that straddle the 136-byte rate, and must still match.
+#[test]
+fn incremental_shake256_matches_acvp_absorbed_and_squeezed_in_pieces() {
+    for absorb in [1usize, 7, 135, 136, 137] {
+        for squeeze in [1usize, 7, 136, 200] {
+            let n = run("SHAKE-256-1.0", &|m, o| {
+                shake256_in_pieces(m, o, absorb, squeeze)
+            });
+            assert_eq!(n, 210, "absorb {absorb}, squeeze {squeeze}");
+            run("SHAKE-256-FIPS202", &|m, o| {
+                shake256_in_pieces(m, o, absorb, squeeze)
+            });
         }
     }
 }
