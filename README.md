@@ -102,30 +102,31 @@ example.
 
 ## The crates
 
-**Depend on `macula-pq`.** The other three are implementation crates. They
+**Depend on `macula-pq`.** The others are implementation crates. They
 are published only because cargo refuses to publish a crate whose path
 dependencies are not themselves on the registry, and they are not
 advertised as entry points: nothing in this stack needs SHA-3 outside
-ML-KEM, since TLS uses SHA-2.
+ML-KEM and ML-DSA, since TLS uses SHA-2.
 
 | Crate | What it is | State |
 |---|---|---|
-| **`macula-pq`** | **The facade. This is what you depend on.** | `client_builder()` / `server_builder()`: locked to our two hybrids, nothing classical; no consumer uses them yet |
+| **`macula-pq`** | **The facade. This is what you depend on.** | `client_builder()` / `server_builder()`: locked to our two hybrids, nothing classical; used by `macula_quic` and `macula-rust` on their default branches, in neither's release yet |
 | `macula-keccak` | Keccak-f[1600], SHA3-256/512, SHAKE128/256 | complete, NIST ACVP vectors passing |
 | `macula-mlkem` | ML-KEM (FIPS 203) | complete: NIST ACVP vectors passing, seeds from the OS, secrets wiped, timed |
+| `macula-mldsa` | ML-DSA (FIPS 204), signatures | in progress, not released, used by nothing: parameter sets and NIST's vectors, no algorithm yet |
 | `macula-pq-kx` | Hybrid TLS key exchange groups, including `SecP384r1MLKEM1024` | complete |
 
-⛔ **It is four crates rather than one with modules because the layering is
-load-bearing:**
+⛔ **These are separate crates rather than one with modules because the
+layering is load-bearing:**
 
 <p align="center">
-  <img src="assets/crate-layering.svg" alt="macula-pq depends on macula-pq-kx, which adds rustls and aws-lc-rs; macula-pq-kx depends on macula-mlkem, which depends on macula-keccak; neither of those two depends on rustls or anything TLS" width="640">
+  <img src="assets/crate-layering.svg" alt="macula-pq depends on macula-pq-kx, which adds rustls and aws-lc-rs; macula-pq-kx depends on macula-mlkem; macula-mlkem and macula-mldsa, in progress, both depend on macula-keccak; none of those three depends on rustls or anything TLS" width="640">
 </p>
 
-Collapse that and anyone wanting ML-KEM is forced to take rustls and
-`aws-lc-rs` with it. **If `macula-mlkem` ever gains a rustls dependency
-that separation is gone**, and it will not be visible from inside the
-crate.
+Collapse that and anyone wanting ML-KEM or ML-DSA is forced to take
+rustls and `aws-lc-rs` with it. **If `macula-mlkem` or `macula-mldsa` ever
+gains a rustls dependency that separation is gone**, and it will not be
+visible from inside the crate.
 
 ### `SecP384r1MLKEM1024`, and why it had to be written
 
@@ -228,11 +229,13 @@ carries `#![warn(missing_docs)]`, which clippy's `-D warnings` makes an
 error.
 
 **Packaging is checked on every commit, not at release time.**
-[`check-packaging.sh`](scripts/check-packaging.sh) packages all four
-crates for crates.io, offline and without building. It works on a copy
-with any `publish = false` removed, because cargo will not package a
-crate against a dependency marked unpublishable, as a new crate is until
-its first release.
+[`check-packaging.sh`](scripts/check-packaging.sh) packages every
+crate for crates.io, offline, and builds each one from its package: a
+package is not the tree, since `macula-mldsa` leaves NIST's vectors out,
+and source reading an excluded file would build here and fail for every
+consumer. It works on a copy with any `publish = false` removed, because
+cargo will not package a crate against a dependency marked
+unpublishable, as a new crate is until its first release.
 
 **Clippy runs twice because tests and consumers build different
 libraries.** `macula-mlkem`'s own tests switch on its `internal` feature,
@@ -379,15 +382,19 @@ counterpart; it is checked against OTP's `ssl`, outside the gate (see
 - Released to crates.io as 0.1.0: all four crates, from one tag. See
   [CHANGELOG.md](CHANGELOG.md).
 
+- `macula_quic` (in `macula`) and `macula-rust` key-exchange through
+  `macula-pq` on their default branches; neither has released it.
+
 **Not done**
 
-- Migrating `macula_quic` and `macula-rust` onto the facade.
+- `macula-mldsa`: ML-DSA, the signature half, is being built. Nothing
+  uses it and it is not released.
 
 ## Releasing
 
 A `vX.Y.Z` tag is the release.
 [`release-core.yml`](.github/workflows/release-core.yml)'s `verify` job
-checks all four crates are publishable at the tag's version, runs the gate
+checks every crate is publishable at the tag's version, runs the gate
 and a dry-run publish, then `publish` runs in the `crates-io` environment
 with no approval step. That environment admits only `v*.*.*` tags and
 holds the crates.io token, so nothing else can read it.

@@ -1,6 +1,6 @@
 name: Release to crates.io
 
-# Publishes all four crates from one pushed release tag. THE TAG IS THE
+# Publishes every crate from one pushed release tag. THE TAG IS THE
 # RELEASE: there is no approval step.
 #
 # - A pushed tag vX.Y.Z runs `verify`: every crate is publishable at the
@@ -16,35 +16,37 @@ name: Release to crates.io
 #   never publishes. GitHub only dispatches a workflow that is on the
 #   default branch.
 #
-# ⛔ ALL FOUR CRATES ARE PUBLISHED. ONLY `macula-pq` IS A SUPPORTED ENTRY
+# ⛔ EVERY CRATE IS PUBLISHED. ONLY `macula-pq` IS A SUPPORTED ENTRY
 # POINT. Both halves matter and a later reader will otherwise "simplify"
 # one of them away.
 #
-# WHY ALL FOUR ARE PUBLISHED: a mechanical constraint, not a product
+# WHY ALL ARE PUBLISHED: a mechanical constraint, not a product
 # decision. Cargo refuses to publish a crate whose dependencies are not
 # themselves on crates.io. `macula-pq` depends on `macula-pq-kx`, and so
 # on down, so publishing the facade requires publishing everything it
-# stands on. The inner three exist on the registry without being
+# stands on. The inner crates exist on the registry without being
 # advertised.
 #
 # WHAT TO DEPEND ON IS `macula-pq`. There is no use case for consuming
-# `macula-keccak` alone: nothing in this stack needs SHA-3 outside ML-KEM,
-# because TLS uses SHA-2, and this is not a general-purpose Keccak
-# maintained for strangers.
+# `macula-keccak` alone: nothing in this stack needs SHA-3 outside ML-KEM
+# and ML-DSA, because TLS uses SHA-2, and this is not a general-purpose
+# Keccak maintained for strangers.
 #
-# ⛔ WHY THIS IS FOUR CRATES AND NOT ONE WITH MODULES. The layering is
+# ⛔ WHY THESE ARE SEPARATE CRATES AND NOT ONE WITH MODULES. The layering is
 # load-bearing:
 #
 #   macula-keccak   zeroize only
 #   macula-mlkem    keccak + OS randomness + zeroize    NO rustls
+#   macula-mldsa    keccak + OS randomness + zeroize    NO rustls
 #   macula-pq-kx    mlkem + rustls + aws-lc-rs
 #   macula-pq       facade
 #
-# Collapse that and anyone wanting ML-KEM is forced to take rustls and
-# aws-lc-rs with it. Keeping the maths free of the TLS envelope is the
-# whole reason the envelope and the maths were separated in the first
-# place. IF `macula-mlkem` EVER GAINS A RUSTLS DEPENDENCY THAT LAYERING IS
-# GONE, and nobody will notice from inside the crate.
+# Collapse that and anyone wanting ML-KEM or ML-DSA is forced to take
+# rustls and aws-lc-rs with it. Keeping the maths free of the TLS
+# envelope is the whole reason the envelope and the maths were separated
+# in the first place. IF `macula-mlkem` OR `macula-mldsa` EVER GAINS A
+# RUSTLS DEPENDENCY THAT LAYERING IS GONE, and nobody will notice from
+# inside the crate.
 #
 # ⚠ A NEW CRATE CARRIES `publish = false` UNTIL IT IS READY, ON PURPOSE.
 # The crates share one version and release together from one tag, so

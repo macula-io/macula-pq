@@ -57,7 +57,7 @@ say why in the commit message.
 
 ## Releases
 
-A `vX.Y.Z` tag publishes all four crates to crates.io. The release
+A `vX.Y.Z` tag publishes every crate to crates.io. The release
 workflow checks every crate is publishable at the tag's version, runs the
 gate and a dry-run publish, then publishes.
 

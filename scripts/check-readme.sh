@@ -87,8 +87,14 @@ PYEOF
 #
 # This is the half that matters. The badge asserts that this workspace is
 # 100% safe Rust; the assertion is checked against every crate, not
-# against the words on the badge.
-for c in macula-keccak macula-mlkem macula-pq-kx macula-pq; do
+# against the words on the badge. The crates come from cargo, not from a
+# list here: a hand-kept list silently skips the next crate added.
+crates=$(cargo metadata --no-deps --format-version 1 --offline \
+  | python3 -c 'import json, os, sys
+for p in json.load(sys.stdin)["packages"]:
+    print(os.path.relpath(os.path.dirname(p["manifest_path"])))')
+[ -n "$crates" ] || { echo "README: cargo listed no crates"; fail=1; }
+for c in ${crates}; do
   grep -q 'forbid(unsafe_code)' "$c/src/lib.rs" || {
     echo "README: the memory-safety badge is FALSE, $c does not forbid unsafe"; fail=1; }
 done

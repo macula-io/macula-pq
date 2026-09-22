@@ -1,11 +1,20 @@
 # Changelog
 
-All notable changes to the four crates of this workspace, `macula-pq`,
-`macula-pq-kx`, `macula-mlkem` and `macula-keccak`, are documented here.
+All notable changes to the crates of this workspace, `macula-pq`,
+`macula-pq-kx`, `macula-mlkem`, `macula-mldsa` and `macula-keccak`, are
+documented here.
 They share one version and are released together from one `vX.Y.Z` tag,
 so there is one section per release. Format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Pre-1.0: a minor
 version may include a breaking change where that was the right call.
+
+## [Unreleased]
+
+### `macula-mldsa`
+
+- New crate, not released (`publish = false`): ML-DSA (FIPS 204). So far
+  the three parameter sets with their key and signature sizes, and NIST's
+  ACVP vectors vendored, excluded from the published crate.
 
 ## [0.1.0] - 2026-09-22
 

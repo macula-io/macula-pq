@@ -11,6 +11,7 @@ resolver = "2"
 members = [
     "macula-keccak",  # Keccak-f[1600]: SHA3 and SHAKE, what ML-KEM is built on
     "macula-mlkem",   # the maths
+    "macula-mldsa",   # ML-DSA (FIPS 204): signatures, on the same Keccak
     "macula-pq-kx",   # the hybrid key exchange groups, including ours
     "macula-pq",      # the facade: the one place the PQ posture is decided
 ]

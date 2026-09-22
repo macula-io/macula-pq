@@ -21,7 +21,7 @@ jobs:
       - uses: Swatinem/rust-cache@v2
 
       # ⛔ CI RUNS THE SAME SCRIPT AS THE PRE-COMMIT HOOK, deliberately,
-      # rather than restating the four gates as separate steps here.
+      # rather than restating the gates as separate steps here.
       #
       # Two gates that can disagree is the contract-in-two-places shape:
       # whichever copy gains or loses a check, the other keeps passing and
