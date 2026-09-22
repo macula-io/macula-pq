@@ -17,7 +17,7 @@ exclude = ["vectors/", "tests/acvp.rs"]
 # refuses `publish = false` without it, and prints it in the release
 # summary. Remove both together when ML-DSA is done.
 [package.metadata.withheld]
-reason = "ML-DSA is being built: key generation only, no signing or verification yet"
+reason = "ML-DSA is being built: key generation and verification, no signing yet"
 
 [features]
 # FIPS 204's internal functions, ML-DSA.KeyGen_internal and

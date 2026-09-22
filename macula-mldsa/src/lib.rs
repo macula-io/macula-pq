@@ -10,9 +10,10 @@
 //! against NIST's own ACVP vectors before it is called done: a claim about
 //! independence and assurance, not about being first or better.
 //!
-//! ⚠ **In progress.** Today this crate generates keys, from the OS
-//! ([`key_gen`]), byte-exact against NIST's vectors for all three parameter
-//! sets. There is no signing or verification yet.
+//! ⚠ **In progress.** Today this crate generates keys from the OS
+//! ([`key_gen`]) and verifies signatures ([`verify`]), both byte-exact
+//! against NIST's vectors at all three parameter sets. There is no signing
+//! yet.
 //!
 //! # Scope: pure ML-DSA
 //!
@@ -55,6 +56,9 @@ pub enum Error {
     /// The OS could not supply randomness. FIPS 204 Algorithm 1 returns an
     /// error here rather than build a key from a seed that was not drawn.
     RandomnessUnavailable,
+    /// A context string was longer than 255 bytes, FIPS 204 Algorithms 2
+    /// and 3.
+    ContextTooLong,
 }
 
 /// FIPS 204 Algorithm 1, `ML-DSA.KeyGen`: the seed `xi` is drawn from the
@@ -63,6 +67,31 @@ pub enum Error {
 /// Returns `(pk, sk)`. `sk` wipes itself when dropped.
 pub fn key_gen(p: ParameterSet) -> Result<(Vec<u8>, Zeroizing<Vec<u8>>), Error> {
     key_gen_drawing_from(p, os_random)
+}
+
+/// FIPS 204 Algorithm 3, `ML-DSA.Verify`: whether `signature` is a valid
+/// signature on `message` under `pk` and the context string `context`.
+///
+/// `Ok(false)` for any invalid signature, including a public key or
+/// signature of the wrong length, as FIPS 204 section 3.6.2 requires, and
+/// a malformed hint. `Err` only for a context over 255 bytes, which the
+/// standard answers with an error rather than a verdict. `M'` is
+/// `0 || |ctx| || ctx || message`, absorbed in pieces rather than built.
+pub fn verify(
+    p: ParameterSet,
+    pk: &[u8],
+    message: &[u8],
+    signature: &[u8],
+    context: &[u8],
+) -> Result<bool, Error> {
+    if context.len() > 255 {
+        return Err(Error::ContextTooLong);
+    }
+    Ok(internal::verify_absorbing(p, pk, signature, |h| {
+        h.update(&[0, context.len() as u8]);
+        h.update(context);
+        h.update(message);
+    }))
 }
 
 /// [`key_gen`] with its randomness source as a parameter, so the tests can
@@ -171,6 +200,26 @@ impl ParameterSet {
         32 + 32 + 64 + 32 * ((self.l + self.k) * self.eta_bits() + D * self.k)
     }
 
+    /// `1 + bitlen(gamma1 - 1)`: the bits of each packed coefficient of
+    /// `z`, 18 for gamma1 = 2^17 and 20 for gamma1 = 2^19.
+    pub(crate) const fn z_bits(&self) -> usize {
+        if self.gamma1 == 1 << 17 {
+            18
+        } else {
+            20
+        }
+    }
+
+    /// `bitlen((q - 1) / (2 gamma2) - 1)`: the bits of each coefficient of
+    /// `w1`, 6 for gamma2 = (q - 1) / 88 and 4 for gamma2 = (q - 1) / 32.
+    pub(crate) const fn w1_bits(&self) -> usize {
+        if self.gamma2 == (Q - 1) / 88 {
+            6
+        } else {
+            4
+        }
+    }
+
     /// `bitlen(2 eta)`: the bits of each packed coefficient of `s1` and
     /// `s2`, 3 for eta = 2 and 4 for eta = 4.
     pub(crate) const fn eta_bits(&self) -> usize {
@@ -184,8 +233,7 @@ impl ParameterSet {
     /// A signature: `c~`, then `z` at `1 + bitlen(gamma_1 - 1)` bits per
     /// coefficient, then the hint.
     pub const fn signature_len(&self) -> usize {
-        let z_bits = if self.gamma1 == 1 << 17 { 18 } else { 20 };
-        self.lambda / 4 + self.l * 32 * z_bits + self.omega + self.k
+        self.lambda / 4 + self.l * 32 * self.z_bits() + self.omega + self.k
     }
 }
 
@@ -215,6 +263,46 @@ mod tests {
         let (want_pk, want_sk) = internal::key_gen(ML_DSA_87, &[0x5a; 32]);
         assert_eq!(pk, want_pk);
         assert_eq!(*sk, *want_sk);
+    }
+
+    /// FIPS 204 Algorithm 3: a context over 255 bytes is an error, not a
+    /// verdict; 255 bytes is allowed, and here merely fails to verify.
+    #[test]
+    fn a_context_over_255_bytes_is_an_error() {
+        let p = ML_DSA_44;
+        let pk = vec![0u8; p.public_key_len()];
+        let sig = vec![0u8; p.signature_len()];
+        assert_eq!(
+            verify(p, &pk, b"m", &sig, &[0u8; 256]),
+            Err(Error::ContextTooLong)
+        );
+        assert_eq!(verify(p, &pk, b"m", &sig, &[0u8; 255]), Ok(false));
+    }
+
+    /// FIPS 204 section 3.6.2: a public key or signature of any other
+    /// length is answered with false, never decoded.
+    #[test]
+    fn a_key_or_signature_of_the_wrong_length_is_false() {
+        for p in [ML_DSA_44, ML_DSA_65, ML_DSA_87] {
+            let (pk, len) = (vec![0u8; p.public_key_len()], p.signature_len());
+            for sig_len in [0, len - 1, len + 1] {
+                assert_eq!(
+                    verify(p, &pk, b"m", &vec![0u8; sig_len], b""),
+                    Ok(false),
+                    "{}",
+                    p.name
+                );
+            }
+            let sig = vec![0u8; len];
+            for pk_len in [0, pk.len() - 1, pk.len() + 1] {
+                assert_eq!(
+                    verify(p, &vec![0u8; pk_len], b"m", &sig, b""),
+                    Ok(false),
+                    "{}",
+                    p.name
+                );
+            }
+        }
     }
 
     #[test]

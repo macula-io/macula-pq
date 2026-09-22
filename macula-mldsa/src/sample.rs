@@ -126,3 +126,33 @@ pub fn expand_s(
         rej_bounded_poly(poly, rho_prime, (r + p.l) as u16, p.eta);
     }
 }
+
+/// FIPS 204 Algorithm 29, `SampleInBall`: a polynomial with exactly `tau`
+/// coefficients in `{-1, 1}` and the rest 0, held mod q, from the
+/// commitment hash `c~`. `c~` is public: it is part of the signature.
+pub fn sample_in_ball(c_tilde: &[u8], tau: usize) -> Poly {
+    let mut h = Shake256::new();
+    h.update(c_tilde);
+    let mut xof = h.finalize_xof();
+    let mut s = [0u8; 8];
+    xof.read(&mut s);
+    let signs = u64::from_le_bytes(s);
+    let mut c = [0i32; N];
+    for i in (N - tau)..N {
+        let mut j = [0u8; 1];
+        loop {
+            xof.read(&mut j);
+            if j[0] as usize <= i {
+                break;
+            }
+        }
+        let j = j[0] as usize;
+        c[i] = c[j];
+        c[j] = if (signs >> (i + tau - N)) & 1 == 1 {
+            Q - 1
+        } else {
+            1
+        };
+    }
+    c
+}

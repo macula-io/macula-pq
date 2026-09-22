@@ -22,7 +22,11 @@ version may include a breaking change where that was the right call.
 - Key generation: `key_gen` draws its seed from the OS, and FIPS 204
   Algorithm 6 (`internal::key_gen`, testing only) passes all 75 of NIST's
   keyGen vectors, byte-exact, at ML-DSA-44, -65 and -87. Every secret
-  intermediate is wiped. No signing or verification yet.
+  intermediate is wiped.
+- Verification: `verify` (FIPS 204 Algorithm 3) agrees with NIST on all
+  135 pure sigVer cases, each counted under NIST's reason label. It
+  returns an error for a context over 255 bytes and `false` for a key or
+  signature of the wrong length. No signing yet.
 
 ### `macula-keccak`
 

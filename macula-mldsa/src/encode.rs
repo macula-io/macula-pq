@@ -4,7 +4,7 @@
 //! (`IntegerToBits`, `BitsToBytes`): value `i` occupies bits `i * bits`
 //! to `i * bits + bits - 1` of the output, little-endian.
 
-use crate::poly::{sub, Poly, N};
+use crate::poly::{from_signed, sub, Poly, N};
 use crate::sample::{K_MAX, L_MAX};
 use crate::ParameterSet;
 
@@ -87,4 +87,118 @@ pub fn sk_encode(
         at += 32 * d;
     }
     debug_assert_eq!(at, sk.len());
+}
+
+/// Unpacks 256 values of `bits` bits each from `v`, exactly `32 * bits`
+/// bytes, handing each to `put`.
+fn unpack(v: &[u8], bits: usize, mut put: impl FnMut(usize, u32)) {
+    debug_assert_eq!(v.len(), 32 * bits);
+    let mask = (1u64 << bits) - 1;
+    let mut acc: u64 = 0;
+    let mut held = 0;
+    let mut bytes = v.iter();
+    for i in 0..N {
+        while held < bits {
+            acc |= (*bytes.next().expect("32 * bits bytes") as u64) << held;
+            held += 8;
+        }
+        put(i, (acc & mask) as u32);
+        acc >>= bits;
+        held -= bits;
+    }
+}
+
+/// FIPS 204 Algorithm 18, `SimpleBitUnpack`.
+pub fn simple_bit_unpack(v: &[u8], bits: usize, w: &mut Poly) {
+    unpack(v, bits, |i, x| w[i] = x as i32);
+}
+
+/// FIPS 204 Algorithm 19, `BitUnpack`: each value `x` becomes `b - x`, held
+/// mod q.
+pub fn bit_unpack(v: &[u8], b: i32, bits: usize, w: &mut Poly) {
+    unpack(v, bits, |i, x| w[i] = from_signed(b - x as i32));
+}
+
+/// FIPS 204 Algorithm 23, `pkDecode`, of a public key of the right length.
+pub fn pk_decode(pk: &[u8], p: ParameterSet) -> ([u8; 32], Box<[Poly; K_MAX]>) {
+    let rho: [u8; 32] = pk[..32].try_into().expect("32 bytes");
+    let mut t1 = Box::new([[0i32; N]; K_MAX]);
+    for (chunk, poly) in pk[32..]
+        .as_chunks::<{ 32 * T1_BITS }>()
+        .0
+        .iter()
+        .zip(t1.iter_mut())
+        .take(p.k)
+    {
+        simple_bit_unpack(chunk, T1_BITS, poly);
+    }
+    (rho, t1)
+}
+
+/// FIPS 204 Algorithm 21, `HintBitUnpack`: `None` for a malformed hint,
+/// which is every check the standard lists: a count that runs backwards or
+/// past omega, positions not strictly increasing within a polynomial, and
+/// nonzero padding.
+pub fn hint_bit_unpack(y: &[u8], p: ParameterSet) -> Option<Box<[Poly; K_MAX]>> {
+    let omega = p.omega;
+    let mut h = Box::new([[0i32; N]; K_MAX]);
+    let mut index = 0;
+    for (i, poly) in h.iter_mut().enumerate().take(p.k) {
+        let end = y[omega + i] as usize;
+        if end < index || end > omega {
+            return None;
+        }
+        let first = index;
+        while index < end {
+            if index > first && y[index - 1] >= y[index] {
+                return None;
+            }
+            poly[y[index] as usize] = 1;
+            index += 1;
+        }
+    }
+    if y[index..omega].iter().any(|&b| b != 0) {
+        return None;
+    }
+    Some(h)
+}
+
+/// A decoded signature: the commitment hash, the response `z` held mod q,
+/// and the hint.
+pub struct Signature<'a> {
+    /// `c~`, lambda / 4 bytes.
+    pub c_tilde: &'a [u8],
+    /// `z`, `l` polynomials.
+    pub z: Box<[Poly; L_MAX]>,
+    /// `h`, `k` polynomials of 0 and 1.
+    pub h: Box<[Poly; K_MAX]>,
+}
+
+/// FIPS 204 Algorithm 27, `sigDecode`, of a signature of the right length:
+/// `None` when the hint is malformed.
+pub fn sig_decode(sig: &[u8], p: ParameterSet) -> Option<Signature<'_>> {
+    let c_len = p.lambda / 4;
+    let zb = p.z_bits();
+    let mut z = Box::new([[0i32; N]; L_MAX]);
+    for (i, poly) in z.iter_mut().enumerate().take(p.l) {
+        let at = c_len + i * 32 * zb;
+        bit_unpack(&sig[at..at + 32 * zb], p.gamma1, zb, poly);
+    }
+    let h = hint_bit_unpack(&sig[c_len + p.l * 32 * zb..], p)?;
+    Some(Signature {
+        c_tilde: &sig[..c_len],
+        z,
+        h,
+    })
+}
+
+/// FIPS 204 Algorithm 28, `w1Encode`, absorbed straight into `h` rather
+/// than built as a byte string first.
+pub fn w1_encode_into(h: &mut macula_keccak::Shake256, w1: &[Poly; K_MAX], p: ParameterSet) {
+    let bits = p.w1_bits();
+    let mut out = [0u8; 32 * 6];
+    for poly in w1.iter().take(p.k) {
+        simple_bit_pack(poly, bits, &mut out[..32 * bits]);
+        h.update(&out[..32 * bits]);
+    }
 }

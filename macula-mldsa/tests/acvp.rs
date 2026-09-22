@@ -400,3 +400,165 @@ fn key_gen_matches_acvp() {
     }
     assert_eq!(ran, 75, "keyGen cases run");
 }
+
+/// FIPS 204 Algorithms 3 and 8, `ML-DSA.Verify` and `Verify_internal`,
+/// on every pure sigVer case, dispatched by NIST's interface: the internal
+/// function on `M'`, the same with an externally computed `mu`, and the
+/// external function on a message and its context.
+///
+/// ⛔ EVERY OUTCOME IS COUNTED UNDER NIST'S REASON LABEL, and the counts
+/// asserted: 27 of each way NIST breaks a signature, and 27 valid. A
+/// verifier that returned false for everything would pass 108 of these
+/// and fail exactly the valid ones; one that skipped the hint check
+/// would fail exactly the hint cases, and say so by name.
+#[test]
+fn sig_ver_matches_acvp_every_negative_by_its_reason() {
+    let exp = expected(SIGVER);
+    let reasons = reasons(SIGVER);
+    let p = vectors(SIGVER, "prompt.json");
+    let (run, _) = pure_groups(&p);
+    let mut agreed: BTreeMap<String, usize> = BTreeMap::new();
+    for g in run {
+        let set = g["parameterSet"].as_str().unwrap();
+        let ps = param(set);
+        let interface = g["signatureInterface"].as_str().unwrap();
+        let external_mu = g.get("externalMu").and_then(Value::as_bool) == Some(true);
+        for t in tests(g) {
+            let tc = t["tcId"].as_u64().unwrap();
+            let reason = reasons[&tc].as_str();
+            let pk = hex(t["pk"].as_str().unwrap());
+            let sig = hex(t["signature"].as_str().unwrap());
+            let got = match (interface, external_mu) {
+                ("internal", false) => macula_mldsa::internal::verify(
+                    ps,
+                    &pk,
+                    &hex(t["message"].as_str().unwrap()),
+                    &sig,
+                ),
+                ("internal", true) => {
+                    let mu: [u8; 64] = hex(t["mu"].as_str().unwrap()).try_into().unwrap();
+                    macula_mldsa::internal::verify_mu(ps, &pk, &mu, &sig)
+                }
+                ("external", _) => macula_mldsa::verify(
+                    ps,
+                    &pk,
+                    &hex(t["message"].as_str().unwrap()),
+                    &sig,
+                    &hex(t["context"].as_str().unwrap()),
+                )
+                .unwrap_or_else(|e| panic!("{set} tcId {tc}: verify refused ({e:?})")),
+                other => panic!("{set} tcId {tc}: an interface this test does not know: {other:?}"),
+            };
+            let want = exp[&tc]["testPassed"].as_bool().unwrap();
+            assert_eq!(
+                got, want,
+                "{set} tcId {tc} [{reason}], {interface} interface: verify said {got}, NIST says {want}"
+            );
+            *agreed.entry(reason.to_string()).or_default() += 1;
+        }
+    }
+    let want: BTreeMap<String, usize> = [
+        MODIFIED_MESSAGE,
+        MODIFIED_COMMITMENT,
+        MODIFIED_Z,
+        MODIFIED_HINT,
+        VALID,
+    ]
+    .into_iter()
+    .map(|r| (r.to_string(), 27))
+    .collect();
+    assert_eq!(agreed, want, "verify agreed with NIST, by reason");
+}
+
+/// ⛔ HINT REFUSALS NIST'S VECTORS NEVER REACH. Its "modified hint" cases
+/// break the ordering rule, so a verifier that skipped the checks for
+/// nonzero padding or a count past omega would still pass every vector.
+/// Here each is broken on its own, on NIST's own valid signatures. The
+/// padding fault still decodes to the ORIGINAL hint if the check is
+/// skipped, so nothing downstream rejects it by accident. The count fault
+/// is built so the ordering rule never objects: without the omega check,
+/// decoding reads past the hint and PANICS, and verification runs on
+/// untrusted input, so it must answer false instead. The untouched
+/// signature is the positive control.
+///
+/// The third such refusal, a count running backwards, can only be planted
+/// without changing the hint on a polynomial with no hints after one with
+/// some, and none of NIST's 27 valid signatures has one. It needs a
+/// signature made here, so it is tested with signing, which is not built
+/// yet.
+#[test]
+fn malformed_hints_are_refused_even_when_they_decode_to_the_valid_hint() {
+    let exp = expected(SIGVER);
+    let p = vectors(SIGVER, "prompt.json");
+    let (run, _) = pure_groups(&p);
+    let mut broken: BTreeMap<(&str, &str), usize> = BTreeMap::new();
+    for g in run {
+        let set = g["parameterSet"].as_str().unwrap();
+        let ps = param(set);
+        let interface = g["signatureInterface"].as_str().unwrap();
+        let external_mu = g.get("externalMu").and_then(Value::as_bool) == Some(true);
+        for t in tests(g) {
+            let tc = t["tcId"].as_u64().unwrap();
+            if exp[&tc]["testPassed"] != true {
+                continue;
+            }
+            let pk = hex(t["pk"].as_str().unwrap());
+            let verify = |sig: &[u8]| match (interface, external_mu) {
+                ("internal", false) => macula_mldsa::internal::verify(
+                    ps,
+                    &pk,
+                    &hex(t["message"].as_str().unwrap()),
+                    sig,
+                ),
+                ("internal", true) => {
+                    let mu: [u8; 64] = hex(t["mu"].as_str().unwrap()).try_into().unwrap();
+                    macula_mldsa::internal::verify_mu(ps, &pk, &mu, sig)
+                }
+                _ => macula_mldsa::verify(
+                    ps,
+                    &pk,
+                    &hex(t["message"].as_str().unwrap()),
+                    sig,
+                    &hex(t["context"].as_str().unwrap()),
+                )
+                .unwrap(),
+            };
+            let sig = hex(t["signature"].as_str().unwrap());
+            assert!(verify(&sig), "{set} tcId {tc}: control");
+            let (omega, k) = (ps.omega, ps.k);
+            let y = sig.len() - (omega + k);
+            let count = |s: &[u8], i: usize| s[y + omega + i] as usize;
+
+            // Nonzero padding after the last hint position.
+            let total = count(&sig, k - 1);
+            if total < omega {
+                let mut bad = sig.clone();
+                bad[y + total] = 1;
+                assert!(!verify(&bad), "{set} tcId {tc}: nonzero padding accepted");
+                *broken.entry((set, "nonzero padding")).or_default() += 1;
+            }
+            // Counts past omega, over positions that keep rising into the
+            // count bytes themselves, so the ordering rule never objects:
+            // polynomial 0 takes positions 0..omega, polynomial i claims to
+            // end at omega + i. Without the omega check, decoding reads
+            // past the hint's first omega bytes and indexes out of range.
+            let mut bad = sig.clone();
+            for j in 0..omega {
+                bad[y + j] = j as u8;
+            }
+            for i in 0..k {
+                bad[y + omega + i] = (omega + i) as u8;
+            }
+            assert!(!verify(&bad), "{set} tcId {tc}: counts past omega accepted");
+            *broken.entry((set, "count past omega")).or_default() += 1;
+        }
+    }
+    for set in ["ML-DSA-44", "ML-DSA-65", "ML-DSA-87"] {
+        for fault in ["nonzero padding", "count past omega"] {
+            assert!(
+                broken.get(&(set, fault)).is_some_and(|&n| n > 0),
+                "{set}: no valid signature could carry the fault `{fault}`, so it went untested"
+            );
+        }
+    }
+}

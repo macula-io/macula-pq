@@ -159,6 +159,59 @@ pub fn power2round(r: i32) -> (i32, i32) {
     ((r - r0) >> D, r0)
 }
 
+/// `x / alpha`, floored, for `x < 2^24` and `alpha > 2^17`, by a multiply
+/// and a shift rather than a divide instruction: a hardware divide can
+/// take a time that depends on its operands, and signing decomposes
+/// values derived from its secret mask.
+///
+/// `m = ceil(2^48 / alpha)` overshoots `2^48 / alpha` by less than 1, so
+/// `x * m / 2^48` overshoots `x / alpha` by less than `2^24 / 2^48`, below
+/// the `1 / alpha` it would take to cross an integer. `m` itself is
+/// computed from the public `alpha`.
+#[inline(always)]
+fn div_floor(x: i32, alpha: i32) -> i32 {
+    let m = (1u64 << 48).div_ceil(alpha as u64);
+    ((x as u64 * m) >> 48) as i32
+}
+
+/// FIPS 204 Algorithm 36, `Decompose`, for `r` in `[0, q)`: `(r1, r0)` with
+/// `r = r1 * 2 gamma2 + r0` and `r0` in `(-gamma2, gamma2]`, except that
+/// when `r - r0 = q - 1` it returns `(0, r0 - 1)`. No branch on `r`.
+#[inline(always)]
+pub fn decompose(r: i32, gamma2: i32) -> (i32, i32) {
+    let alpha = 2 * gamma2;
+    // r0 in (-gamma2, gamma2] makes r1 = floor((r + gamma2 - 1) / alpha).
+    let r1 = div_floor(r + gamma2 - 1, alpha);
+    let r0 = r - r1 * alpha;
+    // r1 never exceeds m = (q - 1) / alpha; when it equals it, r - r0 is
+    // q - 1 and the standard's special case applies. `edge` is all ones
+    // exactly then.
+    let m = (Q - 1) / alpha;
+    let edge = !((r1 - m) >> 31);
+    (r1 & !edge, r0 - (edge & 1))
+}
+
+/// FIPS 204 Algorithm 40, `UseHint`, for `r` in `[0, q)` and `h` in
+/// `{0, 1}`. Used by verification, on public values only.
+pub fn use_hint(h: i32, r: i32, gamma2: i32) -> i32 {
+    let m = (Q - 1) / (2 * gamma2);
+    let (r1, r0) = decompose(r, gamma2);
+    match (h, r0 > 0) {
+        (1, true) => (r1 + 1) % m,
+        (1, false) => (r1 + m - 1) % m,
+        _ => r1,
+    }
+}
+
+/// `|c|` for a coefficient `c` in `[0, q)` read as its centered
+/// representative in `(-(q-1)/2, (q-1)/2]`: the infinity norm's term.
+/// No branch on the value.
+#[inline(always)]
+pub fn centered_abs(c: i32) -> i32 {
+    let v = c - ((((Q - 1) / 2 - c) >> 31) & Q);
+    (v ^ (v >> 31)) - (v >> 31)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -286,6 +339,41 @@ mod tests {
                 (0..1 << 10).contains(&r1),
                 "r = {r}: r1 = {r1} needs 10 bits"
             );
+        }
+    }
+
+    /// The standard's own Decompose, with `%` and `/`, for every `r` in
+    /// `[0, q)` at both values of gamma2: the branch-free one must agree
+    /// everywhere, the special case at `r1 = m` included.
+    #[test]
+    fn decompose_agrees_with_the_standard_for_every_r() {
+        for gamma2 in [(Q - 1) / 88, (Q - 1) / 32] {
+            let alpha = 2 * gamma2;
+            for r in 0..Q {
+                let mut r0 = r % alpha;
+                if r0 > gamma2 {
+                    r0 -= alpha;
+                }
+                let want = if r - r0 == Q - 1 {
+                    (0, r0 - 1)
+                } else {
+                    ((r - r0) / alpha, r0)
+                };
+                assert_eq!(decompose(r, gamma2), want, "gamma2 {gamma2}, r {r}");
+            }
+        }
+    }
+
+    #[test]
+    fn centered_abs_is_the_distance_to_zero_mod_q() {
+        for (c, want) in [
+            (0, 0),
+            (1, 1),
+            (Q - 1, 1),
+            ((Q - 1) / 2, (Q - 1) / 2),
+            ((Q + 1) / 2, (Q - 1) / 2),
+        ] {
+            assert_eq!(centered_abs(c), want, "c = {c}");
         }
     }
 }

@@ -8,16 +8,24 @@
 //! Whoever chooses `xi` knows the private key. Applications use
 //! [`crate::key_gen`], which draws it from the OS.
 //!
+//! Verification has no randomness and FIPS 204 does not restrict it; it
+//! is here because NIST's vectors test it on `M'` and on an externally
+//! computed `mu`. Applications use [`crate::verify`], which formats `M'`
+//! from their message and context.
+//!
 //! They exist because NIST's ACVP vectors supply `xi` directly, so this is
 //! the form that can be checked byte-exactly.
 
 use macula_keccak::Shake256;
 use zeroize::Zeroizing;
 
-use crate::encode::{pk_encode, sk_encode};
-use crate::poly::{add, from_signed, multiply_add_ntt, ntt, ntt_inverse, power2round, Poly, N};
-use crate::sample::{expand_a, expand_s, K_MAX, L_MAX};
-use crate::ParameterSet;
+use crate::encode::{pk_decode, pk_encode, sig_decode, sk_encode, w1_encode_into};
+use crate::poly::{
+    add, centered_abs, from_signed, multiply_add_ntt, ntt, ntt_inverse, power2round, sub, use_hint,
+    Poly, N,
+};
+use crate::sample::{expand_a, expand_s, sample_in_ball, K_MAX, L_MAX};
+use crate::{ParameterSet, D};
 
 /// FIPS 204 Algorithm 6, `ML-DSA.KeyGen_internal`.
 ///
@@ -74,4 +82,104 @@ pub fn key_gen(p: ParameterSet, xi: &[u8; 32]) -> (Vec<u8>, Zeroizing<Vec<u8>>) 
     let mut sk = Zeroizing::new(vec![0u8; p.private_key_len()]);
     sk_encode(&mut sk, &rho, &key, &tr, &s1, &s2, &t0, p);
     (pk, sk)
+}
+
+/// FIPS 204 Algorithm 8, `ML-DSA.Verify_internal`, on the formatted
+/// message `M'`.
+#[cfg(feature = "internal")]
+pub fn verify(p: ParameterSet, pk: &[u8], m_prime: &[u8], sig: &[u8]) -> bool {
+    verify_absorbing(p, pk, sig, |h| h.update(m_prime))
+}
+
+/// FIPS 204 Algorithm 8 with `mu` computed elsewhere, as line 7 allows:
+/// `mu = H(tr || M', 64)`.
+#[cfg(feature = "internal")]
+pub fn verify_mu(p: ParameterSet, pk: &[u8], mu: &[u8; 64], sig: &[u8]) -> bool {
+    lengths_are_the_standards(p, pk, sig) && verify_given_mu(p, pk, mu, sig)
+}
+
+/// FIPS 204 section 3.6.2's length rule: a public key or signature of any
+/// other length is refused, with `false`.
+fn lengths_are_the_standards(p: ParameterSet, pk: &[u8], sig: &[u8]) -> bool {
+    pk.len() == p.public_key_len() && sig.len() == p.signature_len()
+}
+
+/// Algorithm 8 with `M'` supplied as whatever `absorb` feeds into
+/// `H(tr || ...)`: `M'` itself, or for [`crate::verify`] the pieces
+/// `0 || |ctx| || ctx || M`, absorbed without being concatenated.
+pub(crate) fn verify_absorbing(
+    p: ParameterSet,
+    pk: &[u8],
+    sig: &[u8],
+    absorb: impl FnOnce(&mut Shake256),
+) -> bool {
+    if !lengths_are_the_standards(p, pk, sig) {
+        return false;
+    }
+    let mut tr = [0u8; 64];
+    let mut h = Shake256::new();
+    h.update(pk);
+    h.finalize_xof().read(&mut tr);
+    let mut h = Shake256::new();
+    h.update(&tr);
+    absorb(&mut h);
+    let mut mu = [0u8; 64];
+    h.finalize_xof().read(&mut mu);
+    verify_given_mu(p, pk, &mu, sig)
+}
+
+/// Algorithm 8, lines 1 to 13, once `mu` is known. Everything here is
+/// public: the key, the signature and the message.
+fn verify_given_mu(p: ParameterSet, pk: &[u8], mu: &[u8; 64], sig: &[u8]) -> bool {
+    let (rho, t1) = pk_decode(pk, p);
+    let Some(s) = sig_decode(sig, p) else {
+        return false;
+    };
+    // ||z||_inf < gamma1 - beta. Checked first: it needs no arithmetic.
+    let bound = p.gamma1 - p.beta();
+    if s.z
+        .iter()
+        .take(p.l)
+        .any(|poly| poly.iter().any(|&c| centered_abs(c) >= bound))
+    {
+        return false;
+    }
+    let a_hat = expand_a(&rho, p);
+    let mut c_hat = sample_in_ball(s.c_tilde, p.tau);
+    ntt(&mut c_hat);
+    let mut z_hat = s.z;
+    for poly in z_hat.iter_mut().take(p.l) {
+        ntt(poly);
+    }
+    // w'_Approx = NTT^-1(A_hat o NTT(z) - NTT(c) o NTT(t1 * 2^d)), then
+    // w'_1 = UseHint(h, w'_Approx).
+    let mut w1 = Box::new([[0i32; N]; K_MAX]);
+    for r in 0..p.k {
+        let mut w = [0i32; N];
+        for s_ in 0..p.l {
+            multiply_add_ntt(&mut w, &a_hat[r][s_], &z_hat[s_]);
+        }
+        let mut t1_hat: Poly = [0i32; N];
+        for (t, &c) in t1_hat.iter_mut().zip(t1[r].iter()) {
+            *t = c << D;
+        }
+        ntt(&mut t1_hat);
+        let mut ct1 = [0i32; N];
+        multiply_add_ntt(&mut ct1, &c_hat, &t1_hat);
+        for (wi, ci) in w.iter_mut().zip(ct1.iter()) {
+            *wi = sub(*wi, *ci);
+        }
+        ntt_inverse(&mut w);
+        for i in 0..N {
+            w1[r][i] = use_hint(s.h[r][i], w[i], p.gamma2);
+        }
+    }
+    // c~' = H(mu || w1Encode(w'_1), lambda / 4), compared with c~.
+    let mut h = Shake256::new();
+    h.update(mu);
+    w1_encode_into(&mut h, &w1, p);
+    let mut c_tilde = [0u8; 64];
+    let c_len = p.lambda / 4;
+    h.finalize_xof().read(&mut c_tilde[..c_len]);
+    c_tilde[..c_len] == *s.c_tilde
 }
