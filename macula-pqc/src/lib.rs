@@ -5,25 +5,29 @@
 //! [`client_builder`] and [`server_builder`]: rustls configuration
 //! builders with the crypto provider and TLS 1.3 already fixed. The caller
 //! chooses certificates, the verifier, client authentication and ALPN. It
-//! cannot choose the key exchange groups.
+//! cannot choose the key exchange groups or the signature algorithms.
+//!
+//! [`self_signed_certificate`]: a self-signed ML-DSA-87 certificate and
+//! its PKCS#8 key from a 32-byte seed, the form a macula node keeps its
+//! TLS key in.
 //!
 //! # Getting started
 //!
-//! Depend on `macula-pqc` and nothing else for key exchange. Build each
-//! rustls configuration from one of the two builders, then carry on as
-//! with any rustls builder: the key exchange groups are the only thing
-//! already decided.
+//! Depend on `macula-pqc` and nothing else for TLS. Build each rustls
+//! configuration from one of the two builders, then carry on as with any
+//! rustls builder: the key exchange groups and the signature algorithms
+//! are the only things already decided.
 //!
 //! ```
 //! # fn main() -> Result<(), Box<dyn std::error::Error>> {
-//! # let certified = rcgen::generate_simple_self_signed(vec!["localhost".to_string()])?;
-//! # let certificate = certified.cert.der().clone();
-//! # let private_key: rustls::pki_types::PrivateKeyDer<'static> =
-//! #     rustls::pki_types::PrivatePkcs8KeyDer::from(certified.signing_key.serialize_der()).into();
-//! # let trusted_root = certificate.clone();
+//! # let seed = [7u8; 32];
+//! // A server certificate and key: ML-DSA-87, from a seed.
+//! let (certificate, private_key) =
+//!     macula_pqc::self_signed_certificate(&seed, vec!["localhost".to_string()])?;
+//!
 //! // A client: you choose how the server is verified.
 //! let mut roots = rustls::RootCertStore::empty();
-//! roots.add(trusted_root)?;
+//! roots.add(certificate.clone())?;
 //! let mut client = macula_pqc::client_builder()
 //!     .with_root_certificates(roots)
 //!     .with_no_client_auth();
@@ -34,9 +38,14 @@
 //!     .with_no_client_auth()
 //!     .with_single_cert(vec![certificate], private_key)?;
 //!
-//! // Both offer SecP384r1MLKEM1024, then SecP256r1MLKEM768, and nothing else.
+//! // Both offer SecP384r1MLKEM1024, then SecP256r1MLKEM768, and nothing
+//! // else, and both verify ML-DSA-87 signatures and nothing else.
 //! assert_eq!(client.crypto_provider().kx_groups.len(), 2);
 //! assert_eq!(server.crypto_provider().kx_groups.len(), 2);
+//! assert_eq!(
+//!     client.crypto_provider().signature_verification_algorithms.supported_schemes(),
+//!     vec![rustls::SignatureScheme::ML_DSA_87]
+//! );
 //! # Ok(())
 //! # }
 //! ```
@@ -85,6 +94,10 @@
 use std::sync::Arc;
 
 use rustls::{ClientConfig, ConfigBuilder, ServerConfig, WantsVerifier};
+
+mod signatures;
+
+pub use signatures::self_signed_certificate;
 
 /// The crate README's code, compiled as a doctest so it cannot drift from
 /// the API it shows. Exists only when doctests are built.
@@ -137,9 +150,19 @@ const PROVIDER_SPEAKS_TLS_1_3: &str = "aws-lc-rs's default provider has TLS 1.3 
 ///   `SecP384r1MLKEM1024`, so it and this provider agree on
 ///   `SecP256r1MLKEM768`, after one HelloRetryRequest when we dial it.
 ///
+/// # The signatures
+///
+/// ML-DSA-87 alone, from `macula-mldsa`: the provider's signature
+/// verification algorithms are ML-DSA-87 for certificates and for TLS 1.3
+/// CertificateVerify, and its key loader takes an ML-DSA-87 PKCS#8 key and
+/// nothing else (the `signatures` module). So a server built here signs
+/// its handshakes with ML-DSA-87, and every verifier built on either
+/// configuration, rustls' own or a caller's, refuses a classical
+/// signature. `a_classical_signature_cannot_agree_with_us` is the negative
+/// control, in both roles.
+///
 /// Everything else comes from `aws-lc-rs`'s default provider: cipher
-/// suites, signature verification, randomness for the TLS layer, and key
-/// loading.
+/// suites, and randomness for the TLS layer.
 ///
 /// # ⛔ Nothing classical is offered, and three things depend on that
 ///
@@ -162,15 +185,14 @@ const PROVIDER_SPEAKS_TLS_1_3: &str = "aws-lc-rs's default provider has TLS 1.3 
 /// peer, which needs a per-endpoint key exchange group option on the NIF.
 /// If you are adding the fallback, that is part of the work.
 ///
-/// And this is key exchange, not signatures: certificates are verified
-/// with ECDSA, Ed25519 or RSA. Say "post-quantum key exchange", never
-/// "post-quantum TLS".
 fn provider() -> rustls::crypto::CryptoProvider {
     rustls::crypto::CryptoProvider {
         kx_groups: vec![
             macula_pqc_kx::SECP384R1MLKEM1024,
             macula_pqc_kx::SECP256R1MLKEM768,
         ],
+        signature_verification_algorithms: signatures::SIGNATURE_VERIFICATION_ALGORITHMS,
+        key_provider: &signatures::KeyLoader,
         ..rustls::crypto::aws_lc_rs::default_provider()
     }
 }
@@ -184,7 +206,7 @@ mod tests {
 
     use std::sync::Arc;
 
-    use rcgen::{BasicConstraints, CertificateParams, IsCa, Issuer, KeyPair};
+    use rcgen::{CertificateParams, KeyPair};
     use rustls::crypto::aws_lc_rs::kx_group as aws;
     use rustls::crypto::{CryptoProvider, SupportedKxGroup};
     use rustls::pki_types::{CertificateDer, PrivateKeyDer, PrivatePkcs8KeyDer, ServerName};
@@ -193,7 +215,7 @@ mod tests {
         ServerConnection,
     };
 
-    use super::{client_builder, server_builder};
+    use super::{client_builder, provider, self_signed_certificate, server_builder};
 
     /// `SecP384r1MLKEM1024`. rustls 0.23.43 has no variant for it.
     const SECP384R1MLKEM1024: NamedGroup = NamedGroup::Unknown(0x11ED);
@@ -267,6 +289,24 @@ mod tests {
         }
     }
 
+    /// The certificates and handshake signatures both builders accept: ML-DSA-87, and nothing classical. Every
+    /// verifier built on either configuration checks signatures with these, so a peer that signs classically fails.
+    #[test]
+    fn both_builders_verify_ml_dsa_87_and_nothing_else() {
+        for (builder, provider) in [
+            ("client_builder", client_builder().crypto_provider().clone()),
+            ("server_builder", server_builder().crypto_provider().clone()),
+        ] {
+            assert_eq!(
+                provider
+                    .signature_verification_algorithms
+                    .supported_schemes(),
+                vec![rustls::SignatureScheme::ML_DSA_87],
+                "{builder}"
+            );
+        }
+    }
+
     /// Two macula peers agree on the group the list leads with.
     #[test]
     fn two_peers_on_these_builders_negotiate_secp384r1mlkem1024() {
@@ -289,7 +329,7 @@ mod tests {
                 aws::MLKEM1024,
                 aws::MLKEM768,
             ],
-            ..rustls::crypto::aws_lc_rs::default_provider()
+            ..provider()
         }
     }
 
@@ -312,7 +352,7 @@ mod tests {
     fn a_classical_only_peer_cannot_agree_with_us() {
         let classical = || CryptoProvider {
             kx_groups: vec![aws::X25519, aws::SECP256R1, aws::SECP384R1],
-            ..rustls::crypto::aws_lc_rs::default_provider()
+            ..provider()
         };
         let id = Identity::new();
         let as_client = handshake(our_client(&id), peer_server(classical(), &id));
@@ -327,12 +367,50 @@ mod tests {
         );
     }
 
+    /// ⛔ THE SIGNATURE NEGATIVE CONTROL, both roles. A server that signs classically cannot agree with our client,
+    /// and a client that verifies only classical signatures cannot agree with our server. Each peer keeps our key
+    /// exchange groups, so the signature is the only thing that can have failed.
+    #[test]
+    fn a_classical_signature_cannot_agree_with_us() {
+        let classical_signatures = || CryptoProvider {
+            signature_verification_algorithms: rustls::crypto::aws_lc_rs::default_provider()
+                .signature_verification_algorithms,
+            key_provider: rustls::crypto::aws_lc_rs::default_provider().key_provider,
+            ..provider()
+        };
+        let classical = Identity::classical();
+        let ours = Identity::new();
+        let we_dial = handshake(
+            our_client(&classical),
+            peer_server(classical_signatures(), &classical),
+        );
+        let they_dial = handshake(
+            peer_client(classical_signatures(), &ours),
+            our_server(&ours),
+        );
+        assert!(
+            we_dial.is_err(),
+            "a server signing classically agreed with us: {we_dial:?}"
+        );
+        assert!(
+            they_dial.is_err(),
+            "a client verifying classically agreed with us: {they_dial:?}"
+        );
+        // The positive twin: the same classical peers agree with each other, so the harness can complete a
+        // handshake with them at all.
+        let classical_pair = handshake(
+            peer_client(classical_signatures(), &classical),
+            peer_server(classical_signatures(), &classical),
+        );
+        assert_eq!(classical_pair, Ok(SECP384R1MLKEM1024));
+    }
+
     // -----------------------------------------------------------------
     // A real TLS 1.3 handshake, in memory
     // -----------------------------------------------------------------
 
-    /// A CA and a server certificate it signed, so the client verifies
-    /// the chain for real rather than skipping verification.
+    /// A self-signed server certificate the client trusts as its root, so the client verifies the certificate's
+    /// signature for real rather than skipping verification.
     struct Identity {
         roots: RootCertStore,
         chain: Vec<CertificateDer<'static>>,
@@ -340,25 +418,34 @@ mod tests {
     }
 
     impl Identity {
+        /// An ML-DSA-87 identity from a fresh seed, as a macula node's TLS key is.
         fn new() -> Identity {
-            let ca_key = KeyPair::generate().unwrap();
-            let mut ca_params = CertificateParams::new(Vec::<String>::new()).unwrap();
-            ca_params.is_ca = IsCa::Ca(BasicConstraints::Unconstrained);
-            let ca = ca_params.self_signed(&ca_key).unwrap();
-            let issuer = Issuer::new(ca_params, ca_key);
+            let (_public, seed) = macula_mldsa::key_gen_seed(macula_mldsa::ML_DSA_87).unwrap();
+            let (certificate, key) =
+                self_signed_certificate(&seed, vec!["localhost".to_string()]).unwrap();
+            Identity::of(certificate, key)
+        }
 
-            let server_key = KeyPair::generate().unwrap();
-            let server_cert = CertificateParams::new(vec!["localhost".to_string()])
+        /// A classical identity, ECDSA P-256, for the negative control.
+        fn classical() -> Identity {
+            let key = KeyPair::generate().unwrap();
+            let certificate = CertificateParams::new(vec!["localhost".to_string()])
                 .unwrap()
-                .signed_by(&server_key, &issuer)
+                .self_signed(&key)
                 .unwrap();
+            Identity::of(
+                certificate.der().clone(),
+                PrivatePkcs8KeyDer::from(key.serialize_der()).into(),
+            )
+        }
 
+        fn of(certificate: CertificateDer<'static>, key: PrivateKeyDer<'static>) -> Identity {
             let mut roots = RootCertStore::empty();
-            roots.add(ca.der().clone()).unwrap();
+            roots.add(certificate.clone()).unwrap();
             Identity {
                 roots,
-                chain: vec![server_cert.der().clone()],
-                key: PrivatePkcs8KeyDer::from(server_key.serialize_der()).into(),
+                chain: vec![certificate],
+                key,
             }
         }
     }

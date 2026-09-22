@@ -4,15 +4,20 @@ version.workspace = true
 edition.workspace = true
 license.workspace = true
 repository.workspace = true
-description = "rustls configuration builders locked to post-quantum hybrid key exchange: SecP384r1MLKEM1024 and SecP256r1MLKEM768"
-keywords = ["post-quantum", "ml-kem", "rustls", "tls", "hybrid"]
+description = "rustls configuration builders locked to SecP384r1MLKEM1024 and SecP256r1MLKEM768 key exchange and ML-DSA-87 signatures"
+keywords = ["post-quantum", "ml-kem", "ml-dsa", "rustls", "tls"]
 categories.workspace = true
 
 [dependencies]
 rustls = { workspace = true }
 macula-pqc-kx = { workspace = true }
+# Every ML-DSA-87 signature the builders make or check, TLS and certificate.
+macula-mldsa = { workspace = true }
+# Builds the self-signed ML-DSA-87 certificate; the signature is macula-mldsa's.
+# aws_lc_rs only for rcgen's ML-DSA algorithm identifier: aws-lc-rs is already
+# linked through rustls, and rcgen signs nothing with it here.
+rcgen = { version = "0.14", default-features = false, features = ["aws_lc_rs"] }
 
 [dev-dependencies]
-# A CA and a server certificate for real TLS handshakes in the tests. The
-# aws-lc-rs backend, because it is already linked; ring would be a second.
-rcgen = { version = "0.14", default-features = false, features = ["aws_lc_rs"] }
+# FIPS 204's KeyGen_internal, to build one key's seed and expanded forms in a test.
+macula-mldsa = { workspace = true, features = ["internal"] }

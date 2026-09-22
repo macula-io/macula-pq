@@ -1,33 +1,37 @@
-//! Interop between `macula-pqc`'s TLS configurations and OTP's own `ssl`.
+//! Interop between `macula-pqc`'s TLS configurations and OTP's own `ssl`: the key exchange and the signatures.
 //!
-//! Run with `scripts/otp-interop.sh`. Not part of the gate: it needs an
-//! OTP installation with ML-KEM (28.4 or later), which CI does not have.
+//! Run with `scripts/otp-interop.sh`. Not part of the gate: it needs an OTP installation with ML-KEM and ML-DSA in
+//! TLS (28.4 or later), which CI does not have.
 //!
 //! # Why OTP
 //!
-//! OTP's `ssl` is the one INDEPENDENT implementation of
-//! `SecP384r1MLKEM1024` there is to exchange with: no Rust provider has
-//! one, so `macula-pqc-kx`'s own tests can only exchange that group with
-//! itself. OTP composes the hybrid in its own Erlang code and takes ML-KEM
-//! and ECDH from its `crypto` library, so a completed handshake means two
-//! independently written implementations agreed on share order, lengths,
-//! splitting and the combined secret. `SecP256r1MLKEM768` is checked the
-//! same way, against a second independent implementation of it.
+//! OTP's `ssl` is the one INDEPENDENT implementation of `SecP384r1MLKEM1024` there is to exchange with: no Rust
+//! provider has one, so `macula-pqc-kx`'s own tests can only exchange that group with itself. OTP composes the hybrid
+//! in its own Erlang code and takes ML-KEM and ECDH from its `crypto` library. It also signs and verifies TLS 1.3
+//! handshakes and certificates with ML-DSA-87 from `crypto`, independently of `macula-mldsa`. So a completed handshake
+//! means two independently written implementations agreed on the group, the shares and the secret, and on the
+//! ML-DSA-87 signature scheme, its encoding, the certificate's key and the PKCS#8 key it was loaded from.
 //!
 //! # What each case checks
 //!
-//! OTP offers exactly ONE group per case, so a completed handshake leaves
-//! nothing else to have agreed on, and the rustls side reports the group
-//! it negotiated as well. A `ping`/`pong` then crosses the connection,
-//! both roles, so the agreed keys also work for traffic.
+//! Every certificate on our side is ML-DSA-87, from `macula_pqc::self_signed_certificate`, and OTP offers exactly ONE
+//! group and only `mldsa87` per case, so a completed handshake leaves nothing else to have agreed on. The rustls side
+//! reports the group it negotiated as well. A `ping`/`pong` then crosses the connection, both roles.
 //!
-//! The negative control: OTP offering only classical groups must fail to
-//! agree with `macula-pqc` in both roles. The passing cases are its
-//! positive twin: the same harness, a group in common, a handshake that
-//! completes.
+//! - **We serve, OTP dials:** `macula-mldsa` signs the handshake, and OTP checks it against our certificate.
+//! - **OTP serves, we dial:** OTP signs the handshake with the same key, read from our PKCS#8 encoding of its seed,
+//!   and `macula-mldsa` checks it.
+//! - **OTP checks our certificate's own signature** with `public_key:pkix_verify/2`. A handshake does not check it:
+//!   OTP trusts that certificate as a trust anchor, and a trust anchor's own signature is never verified.
 //!
-//! Exit codes: 0 every case as expected; 1 an interop case failed; 2 the
-//! negative control failed; 3 this OTP cannot run the check.
+//! The negative controls, each against the passing cases' harness with one thing changed:
+//!
+//! - OTP offering only classical key exchange groups must fail to agree with us, in both roles;
+//! - OTP offering only classical signature algorithms must fail to agree with our server;
+//! - OTP serving a classical certificate, Ed25519, must fail to agree with our client.
+//!
+//! Exit codes: 0 every case as expected; 1 an interop case failed; 2 a negative control failed; 3 this OTP cannot run
+//! the check.
 
 use std::io::{BufRead, BufReader, Read, Write};
 use std::net::{TcpListener, TcpStream};
@@ -36,11 +40,8 @@ use std::process::{Child, Command, Stdio};
 use std::sync::{mpsc, Arc};
 use std::time::{Duration, Instant};
 
-use rcgen::{
-    BasicConstraints, CertificateParams, DistinguishedName, DnType, IsCa, Issuer, KeyPair,
-    PKCS_ED25519,
-};
-use rustls::pki_types::{CertificateDer, PrivatePkcs8KeyDer, ServerName};
+use rcgen::{CertificateParams, DistinguishedName, DnType, KeyPair, PKCS_ED25519};
+use rustls::pki_types::{CertificateDer, PrivateKeyDer, ServerName};
 use rustls::{
     ClientConfig, ClientConnection, NamedGroup, RootCertStore, ServerConfig, ServerConnection,
     StreamOwned,
@@ -54,6 +55,8 @@ const HYBRIDS: [(&str, NamedGroup); 2] = [
     ("secp256r1mlkem768", NamedGroup::secp256r1MLKEM768),
 ];
 const CLASSICAL_ONLY: &str = "x25519,secp256r1,secp384r1";
+const MLDSA87: &str = "mldsa87";
+const CLASSICAL_SIGNATURES: &str = "eddsa_ed25519,ecdsa_secp384r1_sha384,rsa_pss_rsae_sha256";
 
 fn main() {
     let otp_bin = PathBuf::from(std::env::var("OTP_BIN").expect("OTP_BIN: OTP's bin directory"));
@@ -75,8 +78,14 @@ fn main() {
     let mut interop_failed = false;
     for (otp_name, expected) in HYBRIDS {
         for (role, outcome) in [
-            ("OTP dials, we serve", we_serve(&peer, &identity, otp_name)),
-            ("we dial, OTP serves", we_dial(&peer, &identity, otp_name)),
+            (
+                "OTP dials, we serve",
+                we_serve(&peer, &identity, otp_name, MLDSA87),
+            ),
+            (
+                "we dial, OTP serves",
+                we_dial(&peer, &identity, otp_name, "ours"),
+            ),
         ] {
             let pass = outcome == Ok(expected);
             interop_failed |= !pass;
@@ -90,27 +99,51 @@ fn main() {
             }
         }
     }
+    let certificate = peer.run(&["verify_cert"]);
+    interop_failed |= certificate.is_err();
+    println!(
+        "{:<22} {:<37} {:<34} {}",
+        "OTP checks",
+        "our certificate's own signature",
+        "",
+        if certificate.is_ok() { "PASS" } else { "FAIL" }
+    );
+    if let Err(e) = &certificate {
+        println!("{:<22} {e}", "");
+    }
 
     let mut control_failed = false;
-    for (role, outcome) in [
+    for (role, offer, outcome) in [
         (
             "OTP dials, we serve",
-            we_serve(&peer, &identity, CLASSICAL_ONLY),
+            CLASSICAL_ONLY,
+            we_serve(&peer, &identity, CLASSICAL_ONLY, MLDSA87),
         ),
         (
             "we dial, OTP serves",
-            we_dial(&peer, &identity, CLASSICAL_ONLY),
+            CLASSICAL_ONLY,
+            we_dial(&peer, &identity, CLASSICAL_ONLY, "ours"),
+        ),
+        (
+            "OTP dials, we serve",
+            "classical signatures only",
+            we_serve(&peer, &identity, HYBRIDS[0].0, CLASSICAL_SIGNATURES),
+        ),
+        (
+            "we dial, OTP serves",
+            "an Ed25519 certificate",
+            we_dial(&peer, &identity, HYBRIDS[0].0, "classical"),
         ),
     ] {
         let pass = outcome.is_err();
         control_failed |= !pass;
         println!(
-            "{role:<22} OTP offers {CLASSICAL_ONLY:<26} {:<34} {}",
+            "{role:<22} OTP offers {offer:<26} {:<34} {}",
             describe(&outcome),
             if pass {
                 "PASS (refused, as required)"
             } else {
-                "FAIL: a classical-only peer agreed"
+                "FAIL: a classical peer agreed"
             }
         );
         if let Err(e) = &outcome {
@@ -121,7 +154,7 @@ fn main() {
     std::fs::remove_dir_all(&dir).unwrap();
     println!();
     if control_failed {
-        println!("NEGATIVE CONTROL FAILED: a classical-only OTP peer agreed with macula-pqc.");
+        println!("NEGATIVE CONTROL FAILED: a classical OTP peer agreed with macula-pqc.");
         std::process::exit(2);
     }
     if interop_failed {
@@ -129,7 +162,8 @@ fn main() {
         std::process::exit(1);
     }
     println!(
-        "macula-pqc and OTP's ssl agree on both hybrids in both roles; classical-only refused."
+        "macula-pqc and OTP's ssl agree on both hybrids and on ML-DSA-87 in both roles; classical key exchange and \
+         classical signatures refused."
     );
 }
 
@@ -151,7 +185,8 @@ fn otp_facts(otp_bin: &Path) -> (String, String) {
             r#"
             {ok, _} = application:ensure_all_started(ssl),
             Needed = [secp384r1mlkem1024, secp256r1mlkem768],
-            Missing = Needed -- ssl:groups(default),
+            Missing = (Needed -- ssl:groups(default)) ++
+                      ([mldsa87] -- ssl:signature_algs(all, 'tlsv1.3')),
             {ok, V} = file:read_file(filename:join([code:root_dir(), "releases",
                                      erlang:system_info(otp_release), "OTP_VERSION"])),
             [{Lib, _, Name}] = crypto:info_lib(),
@@ -172,7 +207,7 @@ fn otp_facts(otp_bin: &Path) -> (String, String) {
     }
     if lines[2] != "[]" {
         eprintln!(
-            "OTP {} lacks groups this check needs: {}",
+            "OTP {} lacks groups or signature algorithms this check needs: {}",
             lines[0], lines[2]
         );
         std::process::exit(3);
@@ -191,6 +226,12 @@ struct Peer {
 }
 
 impl Peer {
+    /// One OTP command that prints only its verdict.
+    fn run(&self, args: &[&str]) -> Result<(), String> {
+        let mut otp = self.spawn(args);
+        finish(&mut otp)
+    }
+
     fn spawn(&self, args: &[&str]) -> Child {
         Command::new(&self.escript)
             .arg(&self.script)
@@ -205,10 +246,15 @@ impl Peer {
 
 /// OTP dials, `macula-pqc` serves. The group is what rustls reports; the
 /// result is `Ok` only if OTP also completed the ping/pong.
-fn we_serve(peer: &Peer, id: &Identity, otp_groups: &str) -> Result<NamedGroup, String> {
+fn we_serve(
+    peer: &Peer,
+    id: &Identity,
+    otp_groups: &str,
+    otp_signatures: &str,
+) -> Result<NamedGroup, String> {
     let listener = TcpListener::bind("127.0.0.1:0").map_err(|e| e.to_string())?;
     let port = listener.local_addr().unwrap().port().to_string();
-    let mut otp = peer.spawn(&["dial", &port, otp_groups]);
+    let mut otp = peer.spawn(&["dial", &port, otp_groups, otp_signatures]);
     let ours = (|| {
         let tcp = accept_within(&listener, TIMEOUT)?;
         tcp.set_read_timeout(Some(TIMEOUT)).unwrap();
@@ -226,9 +272,14 @@ fn we_serve(peer: &Peer, id: &Identity, otp_groups: &str) -> Result<NamedGroup, 
     both(ours, finish(&mut otp))
 }
 
-/// `macula-pqc` dials, OTP serves.
-fn we_dial(peer: &Peer, id: &Identity, otp_groups: &str) -> Result<NamedGroup, String> {
-    let mut otp = peer.spawn(&["serve", otp_groups]);
+/// `macula-pqc` dials, OTP serves the identity named `otp_identity`.
+fn we_dial(
+    peer: &Peer,
+    id: &Identity,
+    otp_groups: &str,
+    otp_identity: &str,
+) -> Result<NamedGroup, String> {
+    let mut otp = peer.spawn(&["serve", otp_groups, otp_identity]);
     let ours = (|| {
         let port = first_line_within(&mut otp, TIMEOUT)?
             .strip_prefix("port ")
@@ -332,60 +383,54 @@ fn finish(otp: &mut Child) -> Result<(), String> {
 }
 
 // ---------------------------------------------------------------------
-// One identity, written for OTP and held for rustls
+// The identities, written for OTP and held for rustls
 // ---------------------------------------------------------------------
 
-/// An Ed25519 CA and a server certificate it signed. Ed25519 because OTP
-/// checks an ECDSA certificate's curve against `supported_groups`, which
-/// would force a classical group into a list meant to hold one hybrid.
-///
-/// ⚠ The two need DIFFERENT subject names. `rcgen` gives every
-/// certificate the same default name, so the server certificate's issuer
-/// would equal its own subject, and OTP rejects that as `selfsigned_peer`.
-/// webpki accepts it, which is how the harness first failed only when OTP
-/// was the client.
+/// Ours: a self-signed ML-DSA-87 certificate and its PKCS#8 key from a fresh seed, as a macula station holds its TLS
+/// key, written as ours.der and ours.key.der. And a classical one, Ed25519, self-signed, as classical.der and
+/// classical.key.der, for the control where OTP serves a classical certificate. Our client trusts both
+/// certificates, so what refuses the classical one is its signature, not an unknown issuer.
 struct Identity {
-    ca: CertificateDer<'static>,
-    server_cert: CertificateDer<'static>,
-    server_key: Vec<u8>,
+    certificate: CertificateDer<'static>,
+    key: PrivateKeyDer<'static>,
+    classical: CertificateDer<'static>,
 }
 
 impl Identity {
     fn write(dir: &Path) -> Identity {
-        let ca_key = KeyPair::generate_for(&PKCS_ED25519).unwrap();
-        let mut ca_params = CertificateParams::new(Vec::<String>::new()).unwrap();
-        ca_params.is_ca = IsCa::Ca(BasicConstraints::Unconstrained);
-        ca_params.distinguished_name = common_name("macula-pqc interop CA");
-        let ca = ca_params.self_signed(&ca_key).unwrap();
-        let issuer = Issuer::new(ca_params, ca_key);
-        let server_key = KeyPair::generate_for(&PKCS_ED25519).unwrap();
-        let mut server_params = CertificateParams::new(vec!["localhost".to_string()]).unwrap();
-        server_params.distinguished_name = common_name("localhost");
-        let server_cert = server_params.signed_by(&server_key, &issuer).unwrap();
+        let (_public, seed) = macula_mldsa::key_gen_seed(macula_mldsa::ML_DSA_87).unwrap();
+        let (certificate, key) =
+            macula_pqc::self_signed_certificate(&seed, vec!["localhost".to_string()]).unwrap();
+        let PrivateKeyDer::Pkcs8(pkcs8) = &key else {
+            unreachable!("self_signed_certificate returns PKCS#8")
+        };
+        std::fs::write(dir.join("ours.der"), &certificate).unwrap();
+        std::fs::write(dir.join("ours.key.der"), pkcs8.secret_pkcs8_der()).unwrap();
 
-        std::fs::write(dir.join("ca.der"), ca.der()).unwrap();
-        std::fs::write(dir.join("server.der"), server_cert.der()).unwrap();
-        std::fs::write(dir.join("server.key.der"), server_key.serialize_der()).unwrap();
+        let classical_key = KeyPair::generate_for(&PKCS_ED25519).unwrap();
+        let mut params = CertificateParams::new(vec!["localhost".to_string()]).unwrap();
+        params.distinguished_name = common_name("localhost");
+        let classical = params.self_signed(&classical_key).unwrap();
+        std::fs::write(dir.join("classical.der"), classical.der()).unwrap();
+        std::fs::write(dir.join("classical.key.der"), classical_key.serialize_der()).unwrap();
         Identity {
-            ca: ca.der().clone(),
-            server_cert: server_cert.der().clone(),
-            server_key: server_key.serialize_der(),
+            certificate,
+            key,
+            classical: classical.der().clone(),
         }
     }
 
     fn server(&self) -> ServerConfig {
         macula_pqc::server_builder()
             .with_no_client_auth()
-            .with_single_cert(
-                vec![self.server_cert.clone()],
-                PrivatePkcs8KeyDer::from(self.server_key.clone()).into(),
-            )
+            .with_single_cert(vec![self.certificate.clone()], self.key.clone_key())
             .unwrap()
     }
 
     fn client(&self) -> ClientConfig {
         let mut roots = RootCertStore::empty();
-        roots.add(self.ca.clone()).unwrap();
+        roots.add(self.certificate.clone()).unwrap();
+        roots.add(self.classical.clone()).unwrap();
         macula_pqc::client_builder()
             .with_root_certificates(roots)
             .with_no_client_auth()

@@ -3,7 +3,8 @@
 # already runs:
 #
 # - macula-pqc's TLS configurations against OTP's ssl, the one independent
-#   implementation of SecP384r1MLKEM1024 there is
+#   implementation of SecP384r1MLKEM1024 there is, with ML-DSA-87 signing
+#   and verifying the handshakes on both sides
 #   (macula-pqc/examples/otp_interop.rs);
 # - macula-mldsa against OTP's crypto: public keys derived from one private
 #   key, and each side's signatures verified by the other, with keys

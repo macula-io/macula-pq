@@ -9,6 +9,40 @@ withheld from a release, and its section says so. Format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Pre-1.0: a minor
 version may include a breaking change where that was the right call.
 
+## [0.2.0] - 2026-09-22
+
+`macula-pqc`'s TLS signatures are post-quantum: ML-DSA-87 alone, on
+`macula-mldsa`. Breaking for anyone presenting or accepting a classical
+certificate through `macula-pqc`, hence 0.2. The other crates are
+unchanged and move to 0.2.0 with it, as one version for the workspace.
+
+### `macula-pqc`: ML-DSA-87 signatures
+
+- The provider inside `client_builder()` and `server_builder()` verifies
+  ML-DSA-87 and nothing else, for certificates and for TLS 1.3
+  CertificateVerify (code point `0x0906`), through `macula-mldsa`. A
+  classical certificate or handshake signature is refused, and no
+  signature is verified by `aws-lc-rs` any more.
+- Its key loader takes an ML-DSA-87 PKCS#8 key in any of RFC 9881's three
+  forms, seed, expanded key or both, and nothing else. A key holding both
+  is refused when they disagree. A server built here signs its handshakes
+  with ML-DSA-87, hedged from the OS.
+- `self_signed_certificate(seed, subject_alt_names)`: a self-signed
+  ML-DSA-87 certificate and its PKCS#8 key from a 32-byte seed, the form a
+  macula node keeps its TLS key in. `rcgen` builds the X.509 structure;
+  the signature is `macula-mldsa`'s.
+- Tests: real TLS 1.3 handshakes between two peers on the builders
+  complete with ML-DSA-87 on both sides; a peer with classical signatures,
+  in either role, cannot agree with us (the negative control), while two
+  such classical peers agree with each other, so the harness can complete
+  a handshake with them at all.
+- `scripts/otp-interop.sh` now runs the TLS cases with ML-DSA-87 on both
+  sides against OTP 28.4.2's `ssl`: both hybrids agree in both roles, OTP
+  verifies our certificate's own signature, and classical key exchange,
+  classical signatures and a classical certificate are refused. A context
+  byte planted in our handshake signer, our verifier or our certificate
+  signer fails exactly the cases that depend on it.
+
 ## [0.1.2] - 2026-09-22
 
 The first release of `macula-mldsa`, ML-DSA (FIPS 204), which macula's

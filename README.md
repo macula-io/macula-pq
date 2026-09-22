@@ -16,17 +16,20 @@
 </p>
 
 <p align="center">
-  <strong>Post-quantum cryptography library with hybrid TLS key exchange</strong>
+  <strong>Post-quantum cryptography library: hybrid TLS key exchange and ML-DSA signatures</strong>
 </p>
 
 ---
 
-> **Status, 2026-09-22:** early. 0.1.2 adds `macula-mldsa`, ML-DSA
-> signatures. 0.1.1 was the first release under the name `macula-pqc`;
-> 0.1.0 was released as `macula-pq`, since deleted from crates.io.
+> **Status, 2026-09-22:** early. 0.2.0 makes `macula-pqc`'s TLS
+> signatures post-quantum. 0.1.2 added `macula-mldsa`, ML-DSA signatures.
+> 0.1.1 was the first release under the name `macula-pqc`; 0.1.0 was
+> released as `macula-pq`, since deleted from crates.io.
 > **`macula-pqc` hands out rustls configuration builders locked to
 > `SecP384r1MLKEM1024` then `SecP256r1MLKEM768`, both on this project's
-> own ML-KEM, and nothing classical.** No rustls provider offers
+> own ML-KEM, and to ML-DSA-87 signatures on this project's own ML-DSA,
+> and nothing classical**, and makes the self-signed ML-DSA-87
+> certificate a macula node presents. No rustls provider offers
 > `SecP384r1MLKEM1024`: not `ring`, not `aws-lc-rs`, not rustls itself.
 > **`macula-mlkem` passes every NIST ACVP vector for ML-KEM-512, -768 and
 > -1024**, draws its seeds from the OS, wipes its secrets, and has been
@@ -35,17 +38,18 @@
 > `macula-keccak` passes NIST's ACVP vectors for SHA3-256/512 and
 > SHAKE128/256, including the Monte Carlo chains. `macula_quic` and
 > `macula-rust` key-exchange through `macula-pqc` 0.1 on their default
-> branches, and neither has released that yet.
+> branches, neither has released that yet, and neither is on 0.2 yet.
 > **`macula-mldsa` passes every pure NIST ACVP vector for ML-DSA-44, -65
 > and -87**, signs hedged from the OS with keys expanded or as seeds, and
 > agrees with OTP's `crypto`. See [Status](#status).
 
 ## What is this?
 
-**Post-quantum cryptography library with hybrid TLS key exchange.**
-ML-KEM (FIPS 203), the Keccak primitives it is built on, and the hybrid
-key exchange groups that combine it with elliptic-curve Diffie-Hellman
-for rustls.
+**Post-quantum cryptography library: hybrid TLS key exchange and ML-DSA
+signatures.** ML-KEM (FIPS 203), ML-DSA (FIPS 204), the Keccak primitives
+both are built on, the hybrid key exchange groups that combine ML-KEM with
+elliptic-curve Diffie-Hellman for rustls, and ML-DSA-87 as rustls's
+signature scheme.
 
 The genuinely distinctive part is **`SecP384r1MLKEM1024`**, which **no
 rustls provider ships**: not `ring`, not `aws-lc-rs`, not rustls itself.
@@ -71,13 +75,20 @@ external library, which is the reason for the boundary described below.
 
 ```toml
 [dependencies]
-macula-pqc = "0.1"
+macula-pqc = "0.2"
 rustls = { version = "0.23", default-features = false, features = ["std"] }
 ```
 
 ```rust
 use rustls::pki_types::{CertificateDer, PrivateKeyDer};
 use rustls::{ClientConfig, RootCertStore, ServerConfig};
+
+/// A certificate and key: ML-DSA-87, self-signed, from a 32-byte seed.
+fn identity(
+    seed: &[u8; 32],
+) -> Result<(CertificateDer<'static>, PrivateKeyDer<'static>), rustls::Error> {
+    macula_pqc::self_signed_certificate(seed, vec!["localhost".to_string()])
+}
 
 /// A client: you choose how the server is verified.
 fn client(roots: RootCertStore) -> ClientConfig {
@@ -100,15 +111,18 @@ fn server(
 ```
 
 Both offer `SecP384r1MLKEM1024`, then `SecP256r1MLKEM768`, and nothing
-else; everything else about the configuration is yours. For QUIC, hand
+else, and both sign and verify ML-DSA-87 and nothing else: the
+certificate and its key must be ML-DSA-87, which
+`macula_pqc::self_signed_certificate` makes from a 32-byte seed.
+Everything else about the configuration is yours. For QUIC, hand
 the result to quinn as usual. This code is compiled by `macula-pqc`'s tests,
 and [the crate documentation](https://docs.rs/macula-pqc) runs a fuller
 example.
 
 ## The crates
 
-**Depend on `macula-pqc` for TLS key exchange, and on `macula-mldsa` for
-ML-DSA signatures.** `macula-mldsa` is its own entry point on purpose: it
+**Depend on `macula-pqc` for TLS, and on `macula-mldsa` for ML-DSA
+signatures outside TLS.** `macula-mldsa` is its own entry point on purpose: it
 brings no TLS, so a signer does not take rustls and `aws-lc-rs` with it.
 The others are implementation crates, published only because cargo
 refuses to publish a crate whose path dependencies are not themselves on
@@ -117,17 +131,17 @@ needs SHA-3 outside ML-KEM and ML-DSA, since TLS uses SHA-2.
 
 | Crate | What it is | State |
 |---|---|---|
-| **`macula-pqc`** | **The facade. This is what you depend on.** | `client_builder()` / `server_builder()`: locked to our two hybrids, nothing classical; used by `macula_quic` and `macula-rust` on their default branches, in neither's release yet |
+| **`macula-pqc`** | **The facade. This is what you depend on.** | `client_builder()` / `server_builder()`: locked to our two hybrids and ML-DSA-87, nothing classical; `self_signed_certificate()`. 0.1, key exchange only, is used by `macula_quic` and `macula-rust` on their default branches, in neither's release yet |
 | `macula-keccak` | Keccak-f[1600], SHA3-256/512, SHAKE128/256 | complete, NIST ACVP vectors passing |
 | `macula-mlkem` | ML-KEM (FIPS 203) | complete: NIST ACVP vectors passing, seeds from the OS, secrets wiped, timed |
-| **`macula-mldsa`** | **ML-DSA (FIPS 204) signatures: depend on this to sign or verify.** | complete: key generation, signing (both key formats) and verification pass NIST's vectors at all three parameter sets; signing timed, secrets wiped, seeds from the OS, agrees with OTP; nothing uses it yet |
+| **`macula-mldsa`** | **ML-DSA (FIPS 204) signatures: depend on this to sign or verify.** | complete: key generation, signing (both key formats) and verification pass NIST's vectors at all three parameter sets; signing timed, secrets wiped, seeds from the OS, agrees with OTP; `macula-pqc`'s TLS signatures and macula's node keys use it |
 | `macula-pqc-kx` | Hybrid TLS key exchange groups, including `SecP384r1MLKEM1024` | complete |
 
 ⛔ **These are separate crates rather than one with modules because the
 layering is load-bearing:**
 
 <p align="center">
-  <img src="assets/crate-layering.svg" alt="macula-pqc depends on macula-pqc-kx, which adds rustls and aws-lc-rs; macula-pqc-kx depends on macula-mlkem; macula-mlkem and macula-mldsa, in progress, both depend on macula-keccak; none of those three depends on rustls or anything TLS" width="640">
+  <img src="assets/crate-layering.svg" alt="macula-pqc depends on macula-pqc-kx, which adds rustls and aws-lc-rs, and on macula-mldsa for its signatures; macula-pqc-kx depends on macula-mlkem; macula-mlkem and macula-mldsa both depend on macula-keccak; none of those three depends on rustls or anything TLS" width="640">
 </p>
 
 Collapse that and anyone wanting ML-KEM or ML-DSA is forced to take
@@ -145,15 +159,23 @@ the profile's declaration could not be true on macula's transport.
 
 ## Features
 
-- **rustls configuration builders locked to post-quantum key exchange.**
-  `client_builder()` and `server_builder()` fix the groups and TLS 1.3;
-  a classical-only peer cannot connect.
+- **rustls configuration builders locked to post-quantum key exchange
+  and signatures.** `client_builder()` and `server_builder()` fix the
+  groups, ML-DSA-87 and TLS 1.3; a classical-only peer cannot connect,
+  and a classical certificate or signature is refused.
+- **ML-DSA-87 in TLS 1.3** (code point `0x0906`), for certificates and
+  CertificateVerify, on `macula-mldsa`; keys in RFC 9881's PKCS#8 forms,
+  seed, expanded or both. `self_signed_certificate()` makes a node's
+  certificate from a 32-byte seed.
 - **`SecP384r1MLKEM1024` and `SecP256r1MLKEM768` as rustls key exchange
   groups**, composed per
   [draft-ietf-tls-ecdhe-mlkem](https://datatracker.ietf.org/doc/html/draft-ietf-tls-ecdhe-mlkem-05);
   `SecP384r1MLKEM1024` is code point `0x11ED`.
 - **ML-KEM-512, -768 and -1024 (FIPS 203)**, seeds from the OS, secrets
   wiped when dropped, timing measured with a calibrated harness.
+- **ML-DSA-44, -65 and -87 (FIPS 204)**, keys expanded or as 32-byte
+  seeds, signing hedged from the OS, secrets wiped when dropped, signing
+  timed.
 - **SHA3-256, SHA3-512, SHAKE128 and SHAKE256**, with an incremental
   SHAKE128 reader for multi-block squeezing.
 - **Byte-exact verification against the standards bodies' own test
@@ -171,27 +193,33 @@ the profile's declaration could not be true on macula's transport.
 
 | | |
 |---|---|
-| **Ours** | Keccak (**inside ML-KEM only**), ML-KEM, the hybrid composition |
+| **Ours** | Keccak (**inside ML-KEM and ML-DSA only**), ML-KEM, ML-DSA, the hybrid composition, ML-DSA-87 in rustls: its signing, its verification and its PKCS#8 and public key encodings |
 | **The platform** | The OS CSPRNG |
-| **`aws-lc-rs`** | AES-GCM, ChaCha20-Poly1305, SHA-2, HKDF, P-256 and P-384 ECDH, ECDSA/RSA/Ed25519 verification |
+| **`aws-lc-rs`** | AES-GCM, ChaCha20-Poly1305, SHA-2, HKDF, P-256 and P-384 ECDH, the TLS layer's own randomness |
+| **`rcgen`** | The X.509 structure of the self-signed certificate; the signature on it is `macula-mldsa`'s |
 
 **The rule is that `aws-lc-rs` supplies no post-quantum primitive.**
 Everything left to it is either quantum-safe already or paired with ML-KEM
-in a hybrid, so none of it is ours to write. Writing our own AES-GCM would
+in a hybrid, so none of it is ours to write. **It verifies no signature**:
+the provider's verification algorithms are ML-DSA-87 alone, so a
+classical certificate or CertificateVerify is refused rather than handed
+to `aws-lc-rs`. Writing our own AES-GCM would
 buy nothing and cost real safety.
 
-⚠ **Keccak does not appear in the `CryptoProvider` at all.** TLS 1.3's key
-schedule uses SHA-256 and SHA-384, not SHA-3, so `macula-keccak` is used
-**only inside ML-KEM**. "We own the hashing" is false at the TLS layer and
-true inside the post-quantum primitive.
+⚠ **Keccak appears in the `CryptoProvider` only inside ML-KEM and
+ML-DSA.** TLS 1.3's key schedule and transcript hash use SHA-256 and
+SHA-384, not SHA-3, so `macula-keccak` is used **only inside the two
+post-quantum primitives**. "We own the hashing" is false at the TLS layer
+and true inside the post-quantum primitives.
 
 **rustls and quinn are the envelope**: TLS and QUIC protocol engineering.
 There is no reason to own that.
 
 ### Randomness comes from the operating system, deliberately
 
-ML-KEM key generation and encapsulation take randomness from the **OS
-CSPRNG**, trusted as part of the platform. Not `aws-lc-rs`, and
+ML-KEM key generation and encapsulation, and ML-DSA key generation and
+signing, take randomness from the **OS CSPRNG**, trusted as part of the
+platform. Not `aws-lc-rs`, and
 **emphatically not ours**.
 
 **A hand-written CSPRNG is the one piece of this where rolling your own
@@ -203,16 +231,17 @@ to the method everything else depends on.
 ## How this is consumed
 
 <p align="center">
-  <img src="assets/consumption.svg" alt="macula_quic and macula-rust depend on macula-pqc alone for key exchange, with rustls and quinn as their envelope; behind macula-pqc sit its internal crates and aws-lc-rs, which consumers never see" width="680">
+  <img src="assets/consumption.svg" alt="macula_quic and macula-rust depend on macula-pqc alone for their TLS crypto, with rustls and quinn as their envelope; behind macula-pqc sit its internal crates and aws-lc-rs, which consumers never see" width="680">
 </p>
 
 **`aws-lc-rs` sits behind the facade, not beside it.** A consumer depends
 on `macula-pqc` and nothing else for crypto: no provider selection, no
 `ring` or `aws-lc-rs` feature flags in its manifest.
 
-1. **The `kx_groups` list exists in exactly one place, with its negative
-   control beside it.** A second copy could regain a classical group while
-   the control guarding the first one kept passing.
+1. **The `kx_groups` list and the signature algorithms exist in exactly
+   one place, each with its negative control beside it.** A second copy
+   could regain a classical group or signature while the control guarding
+   the first one kept passing.
 2. **Replacing `aws-lc-rs` changes this workspace and no consumer**: the
    facade's default-provider line and the two ECDH halves in
    `macula-pqc-kx`.
@@ -220,7 +249,8 @@ on `macula-pqc` and nothing else for crypto: no provider selection, no
 ⚠ **THIS IS THE SHAPE ON BOTH CONSUMERS' DEFAULT BRANCHES, NOT YET IN
 A RELEASE OF EITHER.** `macula_quic` and `macula-rust` depend on
 `macula-pqc` 0.1, take their key exchange from its builders, and select
-no rustls provider of their own.
+no rustls provider of their own. **Neither is on 0.2 yet**, so both still
+present and accept classical certificates.
 
 ## Testing
 
@@ -315,20 +345,32 @@ OTP's own `ssl` implements `SecP384r1MLKEM1024` and `SecP256r1MLKEM768`
 independently: its hybrid composition is Erlang, its ML-KEM and ECDH come
 from its `crypto` library. No Rust implementation of `SecP384r1MLKEM1024`
 exists to exchange with, so **this is the only independent check of that
-composition**.
+composition**. It also signs and verifies ML-DSA-87 in TLS 1.3 with its
+`crypto`, independently of `macula-mldsa`.
 
 It runs real TLS 1.3 handshakes over TCP between `macula-pqc` and OTP, in
-both roles, with OTP offering one group at a time and a `ping`/`pong`
-crossing each connection. A classical-only OTP peer must be refused in
-both roles: the negative control. **Not part of the gate**, because it
-needs OTP 28.4 or later and CI has none.
+both roles, with OTP offering one group at a time and only ML-DSA-87, and
+a `ping`/`pong` crossing each connection. Every certificate on our side is
+ML-DSA-87, from `self_signed_certificate`; when OTP serves, it presents
+the same certificate with the key loaded from our PKCS#8 encoding. OTP
+also checks the certificate's own signature, separately, since a
+handshake never checks a trusted certificate's. The negative controls: a
+classical-only OTP peer must be refused in both roles, an OTP client
+offering only classical signatures must be refused by our server, and an
+OTP server with an Ed25519 certificate by our client. **Not part of the
+gate**, because it needs OTP 28.4 or later and CI has none.
 [`examples/otp_interop.rs`](macula-pqc/examples/otp_interop.rs) documents
 it; exit codes are in [`scripts/otp-interop.sh`](scripts/otp-interop.sh).
 
 Result on OTP 28.4.2, whose `crypto` is OpenSSL 3.6.4: both hybrids agree
-in both roles, and the classical-only peer is refused in both. With
-`SecP384r1MLKEM1024`'s share order reversed in `macula-pqc-kx`, both of
-its cases fail and the 768 cases still pass.
+in both roles, with ML-DSA-87 signing and verifying on each side, OTP
+verifies our certificate, and all four negative controls are refused.
+With `SecP384r1MLKEM1024`'s share order reversed in `macula-pqc-kx`, both
+of its cases fail and the 768 cases still pass. With a context byte
+planted in our handshake signer, the two cases where we serve fail; in our
+verifier, the two where we dial; in our certificate signer, OTP's
+certificate check and the two cases where our client meets that
+certificate.
 
 **`macula-mldsa` is checked against OTP's `crypto` in the same run**, the
 ML-DSA the fleet's existing node keys were made with. Signing is hedged on
@@ -404,6 +446,10 @@ counterpart; it is checked against OTP's `ssl`, outside the gate (see
   them; the seeded forms are behind the testing-only `internal` feature,
   as FIPS 203 sections 3.3 and 6 require. Secrets are wiped when dropped,
   and none survives on the heap.
+- `macula-mldsa`: key generation, signing and verification at ML-DSA-44,
+  -65 and -87, every pure ACVP vector passing byte-exact; keys expanded or
+  as 32-byte seeds, signing hedged from the OS, secrets wiped when
+  dropped, and agreement with OTP's `crypto` in both directions.
 - The timing harness, with a positive and a negative control.
   ML-KEM-768 and -1024 measured: no leak detected. ML-DSA-87 and -65
   signing measured against what FIPS 204 lets it vary with: no leak
@@ -411,13 +457,19 @@ counterpart; it is checked against OTP's `ssl`, outside the gate (see
 - `macula-pqc`: `client_builder()` and `server_builder()`, rustls builders
   with the provider and TLS 1.3 already fixed, so no caller can change the
   groups: `SecP384r1MLKEM1024` then `SecP256r1MLKEM768`, from
-  `macula-pqc-kx`, and nothing classical. No function returns the provider
+  `macula-pqc-kx`, and nothing classical; signatures ML-DSA-87 alone, from
+  `macula-mldsa`, for certificates and CertificateVerify, with PKCS#8 keys
+  as a seed, expanded, or both. `self_signed_certificate()` makes a node's
+  certificate from a 32-byte seed. No function returns the provider
   itself. Tested with real TLS 1.3 handshakes: two peers on it agree on
   `SecP384r1MLKEM1024`; a peer on `macula_quic`'s current list agrees on
   `SecP256r1MLKEM768`, our ML-KEM against `aws-lc-rs`'s, in both roles;
-  and a classical-only peer cannot agree with it in either role.
+  and a classical-only peer, or one with classical signatures, cannot
+  agree with it in either role.
 - Interop with OTP 28.4.2's `ssl`, outside the gate: both hybrids agree in
-  both roles; a classical-only peer is refused in both.
+  both roles with ML-DSA-87 on both sides, OTP verifies our certificate,
+  and classical key exchange, classical signatures and a classical
+  certificate are refused.
 - The gate: nine checks, two build profiles, one script, run by the
   pre-commit hook and by CI.
 
@@ -430,12 +482,14 @@ counterpart; it is checked against OTP's `ssl`, outside the gate (see
 
 - `macula_quic` (in `macula`) and `macula-rust` key-exchange through
   `macula-pqc` 0.1 on their default branches; neither has released it.
+- macula's node keys and UCAN tokens sign through `macula-mldsa`, and its
+  EU hybrid is the LAMPS composite, on macula's default branch; not
+  released.
 
 **Not done**
 
-- Moving macula's signatures, UCAN and DID included, onto `macula-mldsa`,
-  per its plan's D7 as amended on 2026-09-22, and the EU hybrid onto the
-  LAMPS composite.
+- `macula_quic` and `macula-rust` on `macula-pqc` 0.2, so that their TLS
+  certificates and handshake signatures are ML-DSA-87.
 
 ## Releasing
 
