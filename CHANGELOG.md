@@ -31,14 +31,24 @@ unchanged and move to 0.2.0 with it, as one version for the workspace.
   ML-DSA-87 certificate and its PKCS#8 key from a 32-byte seed, the form a
   macula node keeps its TLS key in. `rcgen` builds the X.509 structure;
   the signature is `macula-mldsa`'s.
+- `KeyPossessionVerifier`: a rustls server certificate verifier for a
+  self-signed ML-DSA-87 certificate, the one a macula client dials a
+  station with. It accepts exactly one certificate whose key is ML-DSA-87,
+  then the server's TLS 1.3 handshake signature under that key, and
+  refuses TLS 1.2. It proves possession of the key, not identity: the
+  caller binds the key to one. Tested with no roots against a server
+  holding the key, and refusing a chain, an ECDSA certificate and a server
+  signing with another ML-DSA-87 key; each of its three checks, disabled
+  in turn, fails its test.
 - Tests: real TLS 1.3 handshakes between two peers on the builders
   complete with ML-DSA-87 on both sides; a peer with classical signatures,
   in either role, cannot agree with us (the negative control), while two
   such classical peers agree with each other, so the harness can complete
   a handshake with them at all.
 - `scripts/otp-interop.sh` now runs the TLS cases with ML-DSA-87 on both
-  sides against OTP 28.4.2's `ssl`: both hybrids agree in both roles, OTP
-  verifies our certificate's own signature, and classical key exchange,
+  sides against OTP 28.4.2's `ssl`: both hybrids agree in both roles, our
+  client with no roots agrees with OTP's server by `KeyPossessionVerifier`
+  alone, OTP verifies our certificate's own signature, and classical key exchange,
   classical signatures and a classical certificate are refused. A context
   byte planted in our handshake signer, our verifier or our certificate
   signer fails exactly the cases that depend on it.

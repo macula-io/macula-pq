@@ -131,7 +131,7 @@ needs SHA-3 outside ML-KEM and ML-DSA, since TLS uses SHA-2.
 
 | Crate | What it is | State |
 |---|---|---|
-| **`macula-pqc`** | **The facade. This is what you depend on.** | `client_builder()` / `server_builder()`: locked to our two hybrids and ML-DSA-87, nothing classical; `self_signed_certificate()`. 0.1, key exchange only, is used by `macula_quic` and `macula-rust` on their default branches, in neither's release yet |
+| **`macula-pqc`** | **The facade. This is what you depend on.** | `client_builder()` / `server_builder()`: locked to our two hybrids and ML-DSA-87, nothing classical; `self_signed_certificate()`; `KeyPossessionVerifier`. 0.1, key exchange only, is used by `macula_quic` and `macula-rust` on their default branches, in neither's release yet |
 | `macula-keccak` | Keccak-f[1600], SHA3-256/512, SHAKE128/256 | complete, NIST ACVP vectors passing |
 | `macula-mlkem` | ML-KEM (FIPS 203) | complete: NIST ACVP vectors passing, seeds from the OS, secrets wiped, timed |
 | **`macula-mldsa`** | **ML-DSA (FIPS 204) signatures: depend on this to sign or verify.** | complete: key generation, signing (both key formats) and verification pass NIST's vectors at all three parameter sets; signing timed, secrets wiped, seeds from the OS, agrees with OTP; `macula-pqc`'s TLS signatures and macula's node keys use it |
@@ -166,7 +166,10 @@ the profile's declaration could not be true on macula's transport.
 - **ML-DSA-87 in TLS 1.3** (code point `0x0906`), for certificates and
   CertificateVerify, on `macula-mldsa`; keys in RFC 9881's PKCS#8 forms,
   seed, expanded or both. `self_signed_certificate()` makes a node's
-  certificate from a 32-byte seed.
+  certificate from a 32-byte seed, and `KeyPossessionVerifier` is a
+  client's verifier for one: a single ML-DSA-87 certificate and the
+  server's handshake signature under its key, no roots, no names. It
+  proves possession of the key, not identity.
 - **`SecP384r1MLKEM1024` and `SecP256r1MLKEM768` as rustls key exchange
   groups**, composed per
   [draft-ietf-tls-ecdhe-mlkem](https://datatracker.ietf.org/doc/html/draft-ietf-tls-ecdhe-mlkem-05);
@@ -352,7 +355,9 @@ It runs real TLS 1.3 handshakes over TCP between `macula-pqc` and OTP, in
 both roles, with OTP offering one group at a time and only ML-DSA-87, and
 a `ping`/`pong` crossing each connection. Every certificate on our side is
 ML-DSA-87, from `self_signed_certificate`; when OTP serves, it presents
-the same certificate with the key loaded from our PKCS#8 encoding. OTP
+the same certificate with the key loaded from our PKCS#8 encoding, and
+our client dials it once more with no roots at all, trusting it by
+`KeyPossessionVerifier` alone, as a macula client dials a station. OTP
 also checks the certificate's own signature, separately, since a
 handshake never checks a trusted certificate's. The negative controls: a
 classical-only OTP peer must be refused in both roles, an OTP client
@@ -363,14 +368,16 @@ gate**, because it needs OTP 28.4 or later and CI has none.
 it; exit codes are in [`scripts/otp-interop.sh`](scripts/otp-interop.sh).
 
 Result on OTP 28.4.2, whose `crypto` is OpenSSL 3.6.4: both hybrids agree
-in both roles, with ML-DSA-87 signing and verifying on each side, OTP
-verifies our certificate, and all four negative controls are refused.
+in both roles, with ML-DSA-87 signing and verifying on each side, our
+client with no roots agrees by key possession alone, OTP verifies our
+certificate, and all four negative controls are refused.
 With `SecP384r1MLKEM1024`'s share order reversed in `macula-pqc-kx`, both
 of its cases fail and the 768 cases still pass. With a context byte
 planted in our handshake signer, the two cases where we serve fail; in our
-verifier, the two where we dial; in our certificate signer, OTP's
-certificate check and the two cases where our client meets that
-certificate.
+verifier, the three where we dial; in our certificate signer, OTP's
+certificate check and the two cases where our client checks that
+certificate against a root, while the key-possession case still agrees,
+since by design it does not check a certificate's own signature.
 
 **`macula-mldsa` is checked against OTP's `crypto` in the same run**, the
 ML-DSA the fleet's existing node keys were made with. Signing is hedged on
@@ -460,7 +467,10 @@ counterpart; it is checked against OTP's `ssl`, outside the gate (see
   `macula-pqc-kx`, and nothing classical; signatures ML-DSA-87 alone, from
   `macula-mldsa`, for certificates and CertificateVerify, with PKCS#8 keys
   as a seed, expanded, or both. `self_signed_certificate()` makes a node's
-  certificate from a 32-byte seed. No function returns the provider
+  certificate from a 32-byte seed; `KeyPossessionVerifier` accepts one
+  ML-DSA-87 certificate and the server's handshake signature under its
+  key, and refuses a chain, another key type and a server signing with a
+  key other than its certificate's. No function returns the provider
   itself. Tested with real TLS 1.3 handshakes: two peers on it agree on
   `SecP384r1MLKEM1024`; a peer on `macula_quic`'s current list agrees on
   `SecP256r1MLKEM768`, our ML-KEM against `aws-lc-rs`'s, in both roles;

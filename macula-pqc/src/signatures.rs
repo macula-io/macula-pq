@@ -279,6 +279,13 @@ fn subject_public_key_info(public: &[u8]) -> Vec<u8> {
     der(0x30, &[der(0x30, ID_ML_DSA_87), der(0x03, &bits)].concat())
 }
 
+/// Whether a SubjectPublicKeyInfo is an ML-DSA-87 key: exactly the encoding [`subject_public_key_info`] gives the
+/// key it ends with, so the algorithm, its absent parameters and the key's length must all be ML-DSA-87's.
+pub(crate) fn is_ml_dsa_87_key(spki: &[u8]) -> bool {
+    let key_len = ML_DSA_87.public_key_len();
+    spki.len() > key_len && subject_public_key_info(&spki[spki.len() - key_len..]) == spki
+}
+
 /// The PKCS#8 OneAsymmetricKey for a seed, in RFC 9881's `seed` form.
 fn pkcs8_of_seed(seed: &[u8; 32]) -> Zeroizing<Vec<u8>> {
     let private_key = Zeroizing::new(der(0x80, seed));

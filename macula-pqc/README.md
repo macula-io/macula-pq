@@ -59,6 +59,12 @@ This example is compiled by the crate's tests, and the
 - **Decided:** the key exchange groups, the signature algorithm
   (ML-DSA-87) and TLS 1.3. No function returns the crypto provider itself;
   it goes straight into the rustls builder, which keeps it private.
+- **Offered:** `KeyPossessionVerifier`, for a client that trusts no
+  certificate authority: it accepts exactly one certificate whose key is
+  ML-DSA-87, then the server's handshake signature under that key. It
+  proves the server holds the key, not who the server is, so the caller
+  binds the key to an identity itself, as macula's connection handshake
+  does.
 - **Yours:** certificates, the verifier, client authentication, ALPN and
   everything else a rustls configuration holds.
 - **Not preventable:** code that depends on rustls directly can build a
@@ -73,7 +79,8 @@ against OTP's own `ssl`, the one independent implementation of
 
 Certificates are self-signed: public certificate authorities issue no
 ML-DSA certificates, so how a client comes to trust a server's certificate
-is its own, as is every other part of the verifier. Nothing here is
+is its own: `KeyPossessionVerifier` proves possession of the key and
+nothing more. Nothing here is
 claimed to be constant-time; ML-KEM's timing and ML-DSA's signing have
 been measured, and what that means is stated in the
 [project README](https://github.com/macula-io/macula-pqc#what-is-not-claimed).

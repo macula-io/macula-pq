@@ -21,6 +21,9 @@
 //! - **We serve, OTP dials:** `macula-mldsa` signs the handshake, and OTP checks it against our certificate.
 //! - **OTP serves, we dial:** OTP signs the handshake with the same key, read from our PKCS#8 encoding of its seed,
 //!   and `macula-mldsa` checks it.
+//! - **We dial with no roots, OTP serves:** our client trusts the server by `macula_pqc::KeyPossessionVerifier`
+//!   alone, as a macula client dials a station, so the only check is OTP's handshake signature under the key in the
+//!   certificate it presents.
 //! - **OTP checks our certificate's own signature** with `public_key:pkix_verify/2`. A handshake does not check it:
 //!   OTP trusts that certificate as a trust anchor, and a trust anchor's own signature is never verified.
 //!
@@ -84,7 +87,7 @@ fn main() {
             ),
             (
                 "we dial, OTP serves",
-                we_dial(&peer, &identity, otp_name, "ours"),
+                we_dial(&peer, identity.client(), otp_name, "ours"),
             ),
         ] {
             let pass = outcome == Ok(expected);
@@ -99,6 +102,21 @@ fn main() {
             }
         }
     }
+    let (otp_name, expected) = HYBRIDS[0];
+    let possession = we_dial(&peer, Identity::possession_client(), otp_name, "ours");
+    let pass = possession == Ok(expected);
+    interop_failed |= !pass;
+    println!(
+        "{:<22} {:<37} {:<34} {}",
+        "we dial, OTP serves",
+        "no roots: key possession alone",
+        describe(&possession),
+        if pass { "PASS" } else { "FAIL" }
+    );
+    if let Err(e) = &possession {
+        println!("{:<22} {e}", "");
+    }
+
     let certificate = peer.run(&["verify_cert"]);
     interop_failed |= certificate.is_err();
     println!(
@@ -122,7 +140,7 @@ fn main() {
         (
             "we dial, OTP serves",
             CLASSICAL_ONLY,
-            we_dial(&peer, &identity, CLASSICAL_ONLY, "ours"),
+            we_dial(&peer, identity.client(), CLASSICAL_ONLY, "ours"),
         ),
         (
             "OTP dials, we serve",
@@ -132,7 +150,7 @@ fn main() {
         (
             "we dial, OTP serves",
             "an Ed25519 certificate",
-            we_dial(&peer, &identity, HYBRIDS[0].0, "classical"),
+            we_dial(&peer, identity.client(), HYBRIDS[0].0, "classical"),
         ),
     ] {
         let pass = outcome.is_err();
@@ -275,7 +293,7 @@ fn we_serve(
 /// `macula-pqc` dials, OTP serves the identity named `otp_identity`.
 fn we_dial(
     peer: &Peer,
-    id: &Identity,
+    client: ClientConfig,
     otp_groups: &str,
     otp_identity: &str,
 ) -> Result<NamedGroup, String> {
@@ -289,7 +307,7 @@ fn we_dial(
         let tcp = TcpStream::connect(format!("127.0.0.1:{port}")).map_err(|e| e.to_string())?;
         tcp.set_read_timeout(Some(TIMEOUT)).unwrap();
         let name = ServerName::try_from("localhost").unwrap();
-        let conn = ClientConnection::new(Arc::new(id.client()), name).map_err(|e| e.to_string())?;
+        let conn = ClientConnection::new(Arc::new(client), name).map_err(|e| e.to_string())?;
         let mut tls = StreamOwned::new(conn, tcp);
         tls.write_all(b"ping").map_err(|e| e.to_string())?;
         tls.flush().map_err(|e| e.to_string())?;
@@ -425,6 +443,15 @@ impl Identity {
             .with_no_client_auth()
             .with_single_cert(vec![self.certificate.clone()], self.key.clone_key())
             .unwrap()
+    }
+
+    /// A client with no roots, as a macula client dials a station: it trusts whatever ML-DSA-87 key the server
+    /// shows it can sign with (`macula_pqc::KeyPossessionVerifier`).
+    fn possession_client() -> ClientConfig {
+        macula_pqc::client_builder()
+            .dangerous()
+            .with_custom_certificate_verifier(Arc::new(macula_pqc::KeyPossessionVerifier::new()))
+            .with_no_client_auth()
     }
 
     fn client(&self) -> ClientConfig {

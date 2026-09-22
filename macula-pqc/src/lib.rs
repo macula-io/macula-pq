@@ -11,6 +11,12 @@
 //! its PKCS#8 key from a 32-byte seed, the form a macula node keeps its
 //! TLS key in.
 //!
+//! [`KeyPossessionVerifier`]: a server certificate verifier for such a
+//! certificate, and the one a macula client dials a station with. It
+//! accepts exactly one certificate whose key is ML-DSA-87, then the
+//! server's handshake signature under that key. It proves the server holds
+//! the key, not who the server is: the caller binds the key to an identity.
+//!
 //! # Getting started
 //!
 //! Depend on `macula-pqc` and nothing else for TLS. Build each rustls
@@ -95,8 +101,10 @@ use std::sync::Arc;
 
 use rustls::{ClientConfig, ConfigBuilder, ServerConfig, WantsVerifier};
 
+mod key_possession;
 mod signatures;
 
+pub use key_possession::KeyPossessionVerifier;
 pub use signatures::self_signed_certificate;
 
 /// The crate README's code, compiled as a doctest so it cannot drift from
@@ -210,12 +218,15 @@ mod tests {
     use rustls::crypto::aws_lc_rs::kx_group as aws;
     use rustls::crypto::{CryptoProvider, SupportedKxGroup};
     use rustls::pki_types::{CertificateDer, PrivateKeyDer, PrivatePkcs8KeyDer, ServerName};
+    use rustls::sign::{CertifiedKey, SingleCertAndKey};
     use rustls::{
         ClientConfig, ClientConnection, Connection, NamedGroup, RootCertStore, ServerConfig,
         ServerConnection,
     };
 
-    use super::{client_builder, provider, self_signed_certificate, server_builder};
+    use super::{
+        client_builder, provider, self_signed_certificate, server_builder, KeyPossessionVerifier,
+    };
 
     /// `SecP384r1MLKEM1024`. rustls 0.23.43 has no variant for it.
     const SECP384R1MLKEM1024: NamedGroup = NamedGroup::Unknown(0x11ED);
@@ -403,6 +414,99 @@ mod tests {
             peer_server(classical_signatures(), &classical),
         );
         assert_eq!(classical_pair, Ok(SECP384R1MLKEM1024));
+    }
+
+    // -----------------------------------------------------------------
+    // KeyPossessionVerifier: macula's one client verification mode
+    // -----------------------------------------------------------------
+
+    /// A client on the builder with no roots at all, trusting whatever ML-DSA-87 key the server shows it can sign
+    /// with, as a macula client dials a station.
+    fn possession_client() -> ClientConfig {
+        client_builder()
+            .dangerous()
+            .with_custom_certificate_verifier(Arc::new(KeyPossessionVerifier::new()))
+            .with_no_client_auth()
+    }
+
+    /// A server on the builder presenting `chain` and signing its handshake with `key`, whatever the two are.
+    /// `with_single_cert` would refuse a key that is not the certificate's; a resolver does not check, so a test can
+    /// build the server that the verifier must refuse.
+    fn presenting(
+        chain: Vec<CertificateDer<'static>>,
+        key: &PrivateKeyDer<'static>,
+    ) -> ServerConfig {
+        let signing_key = provider()
+            .key_provider
+            .load_private_key(key.clone_key())
+            .unwrap();
+        server_builder()
+            .with_no_client_auth()
+            .with_cert_resolver(Arc::new(SingleCertAndKey::from(CertifiedKey::new(
+                chain,
+                signing_key,
+            ))))
+    }
+
+    /// With no root store, a server holding the key in its ML-DSA-87 certificate is accepted.
+    #[test]
+    fn key_possession_accepts_a_server_holding_its_certificates_key() {
+        let id = Identity::new();
+        assert_eq!(
+            handshake(possession_client(), our_server(&id)),
+            Ok(SECP384R1MLKEM1024)
+        );
+    }
+
+    /// ⛔ THE VERIFIER'S NEGATIVE CONTROL. A server presenting one ML-DSA-87 certificate and signing its handshake
+    /// with another ML-DSA-87 key must fail: that is the one thing the verifier proves, so a verifier that let the
+    /// handshake signature through unchecked would pass every other test here. The positive twin, the same harness
+    /// with the certificate's own key, completes.
+    #[test]
+    fn key_possession_refuses_a_server_that_cannot_sign_for_its_certificate() {
+        let (ours, other) = (Identity::new(), Identity::new());
+        let wrong_key = handshake(
+            possession_client(),
+            presenting(ours.chain.clone(), &other.key),
+        );
+        assert!(
+            wrong_key.is_err(),
+            "a server signing with another key was accepted: {wrong_key:?}"
+        );
+        assert_eq!(
+            handshake(
+                possession_client(),
+                presenting(ours.chain.clone(), &ours.key)
+            ),
+            Ok(SECP384R1MLKEM1024)
+        );
+    }
+
+    /// A station presents its one self-signed certificate. A chain is refused, not ignored.
+    #[test]
+    fn key_possession_refuses_a_chain() {
+        let (ours, other) = (Identity::new(), Identity::new());
+        let chain = vec![ours.chain[0].clone(), other.chain[0].clone()];
+        let agreed = handshake(possession_client(), presenting(chain, &ours.key));
+        assert!(
+            agreed.is_err(),
+            "a chain of two certificates was accepted: {agreed:?}"
+        );
+    }
+
+    /// A certificate whose key is not ML-DSA-87 is refused, even from a server that signs its handshake with
+    /// ML-DSA-87.
+    #[test]
+    fn key_possession_refuses_a_classical_certificate() {
+        let (classical, ours) = (Identity::classical(), Identity::new());
+        let agreed = handshake(
+            possession_client(),
+            presenting(classical.chain.clone(), &ours.key),
+        );
+        assert!(
+            agreed.is_err(),
+            "an ECDSA certificate was accepted: {agreed:?}"
+        );
     }
 
     // -----------------------------------------------------------------
