@@ -1,5 +1,5 @@
 [package]
-name = "macula-pq-kx"
+name = "macula-pqc-kx"
 version.workspace = true
 edition.workspace = true
 license.workspace = true

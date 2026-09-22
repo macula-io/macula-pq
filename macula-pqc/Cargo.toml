@@ -1,5 +1,5 @@
 [package]
-name = "macula-pq"
+name = "macula-pqc"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
@@ -10,7 +10,7 @@ categories.workspace = true
 
 [dependencies]
 rustls = { workspace = true }
-macula-pq-kx = { workspace = true }
+macula-pqc-kx = { workspace = true }
 
 [dev-dependencies]
 # A CA and a server certificate for real TLS handshakes in the tests. The

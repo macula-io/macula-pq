@@ -3,8 +3,8 @@
 ML-KEM (FIPS 203) at ML-KEM-512, -768 and -1024, written from scratch on
 `macula-keccak`.
 
-**Depend on [`macula-pq`](https://crates.io/crates/macula-pq) instead.**
-This crate is published because `macula-pq` needs it on crates.io; it is
+**Depend on [`macula-pqc`](https://crates.io/crates/macula-pqc) instead.**
+This crate is published because `macula-pqc` needs it on crates.io; it is
 not a supported entry point.
 
 - **Verified byte-exact** against NIST's ACVP vectors: 240 cases across key
@@ -16,7 +16,7 @@ not a supported entry point.
 - **Secrets are wiped when dropped**, measured on the heap.
 - **Timing is measured, not claimed**: no leak detected at ML-KEM-768 and
   -1024 on one machine, with a calibrated harness. That is not a proof;
-  see the [project README](https://github.com/macula-io/macula-pq#what-is-not-claimed).
+  see the [project README](https://github.com/macula-io/macula-pqc#what-is-not-claimed).
 
 ## License
 

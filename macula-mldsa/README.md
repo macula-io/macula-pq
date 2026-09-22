@@ -20,7 +20,7 @@ pre-computed hash and would bring SHA-2, which this workspace does not
 own. When the tests run NIST's vectors, the HashML-DSA ones are
 excluded by count, beside that reason.
 
-**Depend on [`macula-pq`](https://crates.io/crates/macula-pq), not on
+**Depend on [`macula-pqc`](https://crates.io/crates/macula-pqc), not on
 this crate.**
 
 ## License

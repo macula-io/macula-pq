@@ -4,7 +4,7 @@ version.workspace = true
 edition.workspace = true
 license.workspace = true
 repository.workspace = true
-description = "ML-KEM (FIPS 203) for macula-pq: NIST ACVP-verified, seeded from the OS, secrets wiped"
+description = "ML-KEM (FIPS 203) for macula-pqc: NIST ACVP-verified, seeded from the OS, secrets wiped"
 keywords = ["post-quantum", "ml-kem", "kem", "fips-203", "kyber"]
 categories.workspace = true
 

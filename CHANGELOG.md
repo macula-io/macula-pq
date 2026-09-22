@@ -1,14 +1,27 @@
 # Changelog
 
-All notable changes to the crates of this workspace, `macula-pq`,
-`macula-pq-kx`, `macula-mlkem`, `macula-mldsa` and `macula-keccak`, are
-documented here.
+All notable changes to the crates of this workspace, `macula-pqc`,
+`macula-pqc-kx`, `macula-mlkem`, `macula-mldsa` and `macula-keccak`, are
+documented here. The 0.1.0 entry below uses the names it shipped under.
 They share one version and are released together from one `vX.Y.Z` tag,
 so there is one section per release. Format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Pre-1.0: a minor
 version may include a breaking change where that was the right call.
 
 ## [Unreleased]
+
+### Renamed: `macula-pq` is now `macula-pqc`
+
+- The facade `macula-pq` is now `macula-pqc`, and `macula-pq-kx` is now
+  `macula-pqc-kx`; the repository is `macula-io/macula-pqc`. PQC is the
+  established term (NIST's programme, ETSI, BSI), where "PQ" alone is
+  ambiguous. In code: `use macula_pqc::`, not `use macula_pq::`.
+- ⚠ Under the new names the first version is 0.1.1, not 0.1.0: 0.1.0 was
+  released as `macula-pq` and `macula-pq-kx`, and the workspace shares
+  one version with `macula-keccak` and `macula-mlkem`, whose 0.1.0 is
+  already on crates.io. No `macula-pqc` 0.1.0 exists.
+- `macula-keccak`, `macula-mlkem` and `macula-mldsa` keep their names:
+  they are named for their algorithm.
 
 ### `macula-mldsa`
 

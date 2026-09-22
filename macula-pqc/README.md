@@ -1,4 +1,4 @@
-# macula-pq
+# macula-pqc
 
 rustls configuration builders locked to **post-quantum hybrid key
 exchange**: `SecP384r1MLKEM1024`, then `SecP256r1MLKEM768`, and nothing
@@ -7,7 +7,7 @@ byte-exact against NIST's ACVP vectors; the elliptic-curve half is
 `aws-lc-rs`.
 
 **This is the crate to depend on.** `macula-keccak`, `macula-mlkem` and
-`macula-pq-kx` are published only because cargo requires a crate's
+`macula-pqc-kx` are published only because cargo requires a crate's
 dependencies to be on crates.io.
 
 ## Getting started
@@ -18,7 +18,7 @@ use rustls::{ClientConfig, RootCertStore, ServerConfig};
 
 /// A client: you choose how the server is verified.
 fn client(roots: RootCertStore) -> ClientConfig {
-    let mut config = macula_pq::client_builder()
+    let mut config = macula_pqc::client_builder()
         .with_root_certificates(roots)
         .with_no_client_auth();
     config.alpn_protocols = vec![b"macula".to_vec()];
@@ -30,7 +30,7 @@ fn server(
     chain: Vec<CertificateDer<'static>>,
     key: PrivateKeyDer<'static>,
 ) -> Result<ServerConfig, rustls::Error> {
-    macula_pq::server_builder()
+    macula_pqc::server_builder()
         .with_no_client_auth()
         .with_single_cert(chain, key)
 }
@@ -42,7 +42,7 @@ else. For QUIC, hand the result to quinn as usual, for example
 requires TLS 1.3, which both builders already fix.
 
 This example is compiled by the crate's tests, and the
-[crate documentation](https://docs.rs/macula-pq) runs a fuller one.
+[crate documentation](https://docs.rs/macula-pqc) runs a fuller one.
 
 ## What is decided for you, and what is not
 
@@ -63,7 +63,7 @@ implementation of `SecP384r1MLKEM1024`.
 This is post-quantum **key exchange**, not post-quantum TLS: certificates
 are verified with ECDSA, Ed25519 or RSA. Nothing here is claimed to be
 constant-time; ML-KEM's timing has been measured, and what that means is
-stated in the [project README](https://github.com/macula-io/macula-pq#what-is-not-claimed).
+stated in the [project README](https://github.com/macula-io/macula-pqc#what-is-not-claimed).
 
 ## License
 

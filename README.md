@@ -1,8 +1,8 @@
-# macula-pq
+# macula-pqc
 
-[![CI](https://img.shields.io/github/actions/workflow/status/macula-io/macula-pq/ci.yml?branch=main&label=CI)](https://github.com/macula-io/macula-pq/actions/workflows/ci.yml)
-[![crates.io](https://img.shields.io/crates/v/macula-pq.svg)](https://crates.io/crates/macula-pq)
-[![docs.rs](https://img.shields.io/docsrs/macula-pq)](https://docs.rs/macula-pq)
+[![CI](https://img.shields.io/github/actions/workflow/status/macula-io/macula-pqc/ci.yml?branch=main&label=CI)](https://github.com/macula-io/macula-pqc/actions/workflows/ci.yml)
+[![crates.io](https://img.shields.io/crates/v/macula-pqc.svg)](https://crates.io/crates/macula-pqc)
+[![docs.rs](https://img.shields.io/docsrs/macula-pqc)](https://docs.rs/macula-pqc)
 [![License](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](#license)
 [![Rust](https://img.shields.io/badge/rust-stable-orange?logo=rust)](https://www.rust-lang.org)
 [![memory safety](https://img.shields.io/badge/memory%20safety-100%25%20safe%20Rust-success.svg)](https://github.com/rust-secure-code/safety-dance/)
@@ -10,8 +10,8 @@
 
 <p align="center">
   <picture>
-    <source media="(prefers-color-scheme: dark)" srcset="assets/macula-pq-full-dark.svg">
-    <img src="assets/macula-pq-full-light.svg" alt="Macula" width="320">
+    <source media="(prefers-color-scheme: dark)" srcset="assets/macula-pqc-full-dark.svg">
+    <img src="assets/macula-pqc-full-light.svg" alt="Macula" width="320">
   </picture>
 </p>
 
@@ -21,8 +21,10 @@
 
 ---
 
-> **Status, 2026-09-22:** 0.1.0, the first release, and early.
-> **`macula-pq` hands out rustls configuration builders locked to
+> **Status, 2026-09-22:** early. 0.1.0 was released as `macula-pq`; under
+> its new name, `macula-pqc`, nothing is published yet, and the first
+> version will be 0.1.1.
+> **`macula-pqc` hands out rustls configuration builders locked to
 > `SecP384r1MLKEM1024` then `SecP256r1MLKEM768`, both on this project's
 > own ML-KEM, and nothing classical.** No rustls provider offers
 > `SecP384r1MLKEM1024`: not `ring`, not `aws-lc-rs`, not rustls itself.
@@ -31,9 +33,10 @@
 > timed at ML-KEM-768 and -1024: no leak detected (see [What is not
 > claimed](#what-is-not-claimed) for exactly what that means).
 > `macula-keccak` passes NIST's ACVP vectors for SHA3-256/512 and
-> SHAKE128/256, including the Monte Carlo chains. Nothing uses
-> `macula-pq` yet: moving `macula_quic` and `macula-rust` onto it is next.
-> See [Status](#status).
+> SHAKE128/256, including the Monte Carlo chains. `macula_quic` and
+> `macula-rust` key-exchange through it on their default branches, still
+> under the old name `macula-pq` 0.1.0, and neither has released that.
+> `macula-mldsa`, ML-DSA, is being built. See [Status](#status).
 
 ## What is this?
 
@@ -66,7 +69,7 @@ external library, which is the reason for the boundary described below.
 
 ```toml
 [dependencies]
-macula-pq = "0.1"
+macula-pqc = "0.1"
 rustls = { version = "0.23", default-features = false, features = ["std"] }
 ```
 
@@ -76,7 +79,7 @@ use rustls::{ClientConfig, RootCertStore, ServerConfig};
 
 /// A client: you choose how the server is verified.
 fn client(roots: RootCertStore) -> ClientConfig {
-    let mut config = macula_pq::client_builder()
+    let mut config = macula_pqc::client_builder()
         .with_root_certificates(roots)
         .with_no_client_auth();
     config.alpn_protocols = vec![b"macula".to_vec()];
@@ -88,7 +91,7 @@ fn server(
     chain: Vec<CertificateDer<'static>>,
     key: PrivateKeyDer<'static>,
 ) -> Result<ServerConfig, rustls::Error> {
-    macula_pq::server_builder()
+    macula_pqc::server_builder()
         .with_no_client_auth()
         .with_single_cert(chain, key)
 }
@@ -96,13 +99,13 @@ fn server(
 
 Both offer `SecP384r1MLKEM1024`, then `SecP256r1MLKEM768`, and nothing
 else; everything else about the configuration is yours. For QUIC, hand
-the result to quinn as usual. This code is compiled by `macula-pq`'s tests,
-and [the crate documentation](https://docs.rs/macula-pq) runs a fuller
+the result to quinn as usual. This code is compiled by `macula-pqc`'s tests,
+and [the crate documentation](https://docs.rs/macula-pqc) runs a fuller
 example.
 
 ## The crates
 
-**Depend on `macula-pq`.** The others are implementation crates. They
+**Depend on `macula-pqc`.** The others are implementation crates. They
 are published only because cargo refuses to publish a crate whose path
 dependencies are not themselves on the registry, and they are not
 advertised as entry points: nothing in this stack needs SHA-3 outside
@@ -110,17 +113,17 @@ ML-KEM and ML-DSA, since TLS uses SHA-2.
 
 | Crate | What it is | State |
 |---|---|---|
-| **`macula-pq`** | **The facade. This is what you depend on.** | `client_builder()` / `server_builder()`: locked to our two hybrids, nothing classical; used by `macula_quic` and `macula-rust` on their default branches, in neither's release yet |
+| **`macula-pqc`** | **The facade. This is what you depend on.** | `client_builder()` / `server_builder()`: locked to our two hybrids, nothing classical; used by `macula_quic` and `macula-rust` on their default branches under the old name `macula-pq` 0.1.0, in neither's release yet |
 | `macula-keccak` | Keccak-f[1600], SHA3-256/512, SHAKE128/256 | complete, NIST ACVP vectors passing |
 | `macula-mlkem` | ML-KEM (FIPS 203) | complete: NIST ACVP vectors passing, seeds from the OS, secrets wiped, timed |
 | `macula-mldsa` | ML-DSA (FIPS 204), signatures | in progress, not released, used by nothing: parameter sets and NIST's vectors, no algorithm yet |
-| `macula-pq-kx` | Hybrid TLS key exchange groups, including `SecP384r1MLKEM1024` | complete |
+| `macula-pqc-kx` | Hybrid TLS key exchange groups, including `SecP384r1MLKEM1024` | complete |
 
 ⛔ **These are separate crates rather than one with modules because the
 layering is load-bearing:**
 
 <p align="center">
-  <img src="assets/crate-layering.svg" alt="macula-pq depends on macula-pq-kx, which adds rustls and aws-lc-rs; macula-pq-kx depends on macula-mlkem; macula-mlkem and macula-mldsa, in progress, both depend on macula-keccak; none of those three depends on rustls or anything TLS" width="640">
+  <img src="assets/crate-layering.svg" alt="macula-pqc depends on macula-pqc-kx, which adds rustls and aws-lc-rs; macula-pqc-kx depends on macula-mlkem; macula-mlkem and macula-mldsa, in progress, both depend on macula-keccak; none of those three depends on rustls or anything TLS" width="640">
 </p>
 
 Collapse that and anyone wanting ML-KEM or ML-DSA is forced to take
@@ -195,11 +198,11 @@ to the method everything else depends on.
 ## How this is consumed
 
 <p align="center">
-  <img src="assets/consumption.svg" alt="macula_quic and macula-rust depend on macula-pq alone for key exchange, with rustls and quinn as their envelope; behind macula-pq sit its internal crates and aws-lc-rs, which consumers never see" width="680">
+  <img src="assets/consumption.svg" alt="macula_quic and macula-rust depend on macula-pqc alone for key exchange, with rustls and quinn as their envelope; behind macula-pqc sit its internal crates and aws-lc-rs, which consumers never see" width="680">
 </p>
 
 **`aws-lc-rs` sits behind the facade, not beside it.** A consumer depends
-on `macula-pq` and nothing else for crypto: no provider selection, no
+on `macula-pqc` and nothing else for crypto: no provider selection, no
 `ring` or `aws-lc-rs` feature flags in its manifest.
 
 1. **The `kx_groups` list exists in exactly one place, with its negative
@@ -207,12 +210,13 @@ on `macula-pq` and nothing else for crypto: no provider selection, no
    the control guarding the first one kept passing.
 2. **Replacing `aws-lc-rs` changes this workspace and no consumer**: the
    facade's default-provider line and the two ECDH halves in
-   `macula-pq-kx`.
+   `macula-pqc-kx`.
 
-⚠ **THE DIAGRAM ABOVE IS THE INTENDED SHAPE, NOT THE CURRENT STATE.**
-Neither `macula_quic` nor `macula-rust` has been migrated. Both still
-select a provider themselves, and `macula-rust` still selects `ring`.
-Those are follow-ups in those repositories and neither is done.
+⚠ **THIS IS THE SHAPE ON BOTH CONSUMERS' DEFAULT BRANCHES, NOT IN A
+RELEASE OF EITHER, AND UNDER THE OLD NAME.** `macula_quic` and
+`macula-rust` take their key exchange from the facade's builders and
+select no rustls provider of their own, but they depend on `macula-pq`
+0.1.0, and switch to `macula-pqc` once it is published.
 
 ## Testing
 
@@ -296,17 +300,17 @@ from its `crypto` library. No Rust implementation of `SecP384r1MLKEM1024`
 exists to exchange with, so **this is the only independent check of that
 composition**.
 
-It runs real TLS 1.3 handshakes over TCP between `macula-pq` and OTP, in
+It runs real TLS 1.3 handshakes over TCP between `macula-pqc` and OTP, in
 both roles, with OTP offering one group at a time and a `ping`/`pong`
 crossing each connection. A classical-only OTP peer must be refused in
 both roles: the negative control. **Not part of the gate**, because it
 needs OTP 28.4 or later and CI has none.
-[`examples/otp_interop.rs`](macula-pq/examples/otp_interop.rs) documents
+[`examples/otp_interop.rs`](macula-pqc/examples/otp_interop.rs) documents
 it; exit codes are in [`scripts/otp-interop.sh`](scripts/otp-interop.sh).
 
 Result on OTP 28.4.2, whose `crypto` is OpenSSL 3.6.4: both hybrids agree
 in both roles, and the classical-only peer is refused in both. With
-`SecP384r1MLKEM1024`'s share order reversed in `macula-pq-kx`, both of
+`SecP384r1MLKEM1024`'s share order reversed in `macula-pqc-kx`, both of
 its cases fail and the 768 cases still pass.
 
 ### How these crates are verified
@@ -338,7 +342,7 @@ mistakes most likely to creep back: a key grown into its buffer instead
 of allocated at its final size, and a secret temporary left unwrapped.
 
 Where no vectors exist, the claim is stated as what it is.
-`macula-pq-kx`'s hybrid composition has none published, so it is verified
+`macula-pqc-kx`'s hybrid composition has none published, so it is verified
 **differentially** against rustls's independently written implementation of
 the same draft, and its documentation says so rather than implying more.
 That exchange runs `SecP256r1MLKEM768` on our ML-KEM against rustls's on
@@ -354,7 +358,7 @@ counterpart; it is checked against OTP's `ssl`, outside the gate (see
 
 - `macula-keccak`: SHA3-256/512, SHAKE128/256, incremental SHAKE128
   reader; ACVP AFT, VOT and MCT vectors, plus FIPS 202 known answers.
-- `macula-pq-kx`: `SecP384r1MLKEM1024` and `SecP256r1MLKEM768`, both on
+- `macula-pqc-kx`: `SecP384r1MLKEM1024` and `SecP256r1MLKEM768`, both on
   `macula-mlkem`, verified differentially against rustls's
   `SECP256R1MLKEM768` and against `aws-lc-rs`'s ML-KEM-768 and -1024.
 - `macula-mlkem`: key generation, encapsulation, decapsulation with
@@ -366,10 +370,10 @@ counterpart; it is checked against OTP's `ssl`, outside the gate (see
   and none survives on the heap.
 - The timing harness, with a positive and a negative control.
   ML-KEM-768 and -1024 measured: no leak detected.
-- `macula-pq`: `client_builder()` and `server_builder()`, rustls builders
+- `macula-pqc`: `client_builder()` and `server_builder()`, rustls builders
   with the provider and TLS 1.3 already fixed, so no caller can change the
   groups: `SecP384r1MLKEM1024` then `SecP256r1MLKEM768`, from
-  `macula-pq-kx`, and nothing classical. No function returns the provider
+  `macula-pqc-kx`, and nothing classical. No function returns the provider
   itself. Tested with real TLS 1.3 handshakes: two peers on it agree on
   `SecP384r1MLKEM1024`; a peer on `macula_quic`'s current list agrees on
   `SecP256r1MLKEM768`, our ML-KEM against `aws-lc-rs`'s, in both roles;
@@ -379,14 +383,18 @@ counterpart; it is checked against OTP's `ssl`, outside the gate (see
 - The gate: eight checks, two build profiles, one script, run by the
   pre-commit hook and by CI.
 
-- Released to crates.io as 0.1.0: all four crates, from one tag. See
-  [CHANGELOG.md](CHANGELOG.md).
+- Released to crates.io as 0.1.0, under the names of the time:
+  `macula-pq`, `macula-pq-kx`, `macula-mlkem` and `macula-keccak`, from
+  one tag. See [CHANGELOG.md](CHANGELOG.md).
 
-- `macula_quic` (in `macula`) and `macula-rust` key-exchange through
-  `macula-pq` on their default branches; neither has released it.
+- `macula_quic` (in `macula`) and `macula-rust` key-exchange through the
+  facade on their default branches, as `macula-pq` 0.1.0; neither has
+  released it.
 
 **Not done**
 
+- Publishing under the new names, `macula-pqc` and `macula-pqc-kx`, and
+  moving both consumers onto them.
 - `macula-mldsa`: ML-DSA, the signature half, is being built. Nothing
   uses it and it is not released.
 
@@ -419,7 +427,7 @@ count is fixed, the rotation offsets are compile-time constants and the
 round constants are indexed by round number. **That is an argument, not a
 measurement.**
 
-`macula-pq-kx`'s composition has not been timed. Its ML-KEM half is
+`macula-pqc-kx`'s composition has not been timed. Its ML-KEM half is
 `macula-mlkem`, timed as above; its ECDH half is `aws-lc-rs`'s.
 
 **Wiping is measured on the heap only.** Values on the stack are wiped by
@@ -434,8 +442,8 @@ determined or tested.
 
 | Project | Description |
 |---|---|
-| [macula](https://github.com/macula-io/macula) | The reference SDK (Erlang/OTP) whose `pq_hybrid` profile declares `SecP384r1MLKEM1024` |
-| [macula-rust](https://github.com/macula-io/macula-rust) | Rust SDK, an intended consumer of this facade |
+| [macula](https://github.com/macula-io/macula) | The reference SDK (Erlang/OTP) whose `pq_hybrid` profile declares `SecP384r1MLKEM1024`; its QUIC NIF, `macula_quic`, consumes this facade |
+| [macula-rust](https://github.com/macula-io/macula-rust) | Rust SDK, which consumes this facade |
 | [macula-station](https://github.com/macula-io/macula-station) | The station: DHT, SWIM, routing, peering |
 | [macula-realm](https://github.com/macula-io/macula-realm) | Managed-realm identity + certificate authority |
 
@@ -444,7 +452,7 @@ determined or tested.
 See [CONTRIBUTING.md](CONTRIBUTING.md) and the
 [Code of Conduct](CODE_OF_CONDUCT.md). **Report a vulnerability
 privately**, through GitHub's
-[private vulnerability reporting](https://github.com/macula-io/macula-pq/security/advisories/new),
+[private vulnerability reporting](https://github.com/macula-io/macula-pqc/security/advisories/new),
 never in a public issue.
 
 ## License

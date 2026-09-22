@@ -1,4 +1,4 @@
-//! Interop between `macula-pq`'s TLS configurations and OTP's own `ssl`.
+//! Interop between `macula-pqc`'s TLS configurations and OTP's own `ssl`.
 //!
 //! Run with `scripts/otp-interop.sh`. Not part of the gate: it needs an
 //! OTP installation with ML-KEM (28.4 or later), which CI does not have.
@@ -7,7 +7,7 @@
 //!
 //! OTP's `ssl` is the one INDEPENDENT implementation of
 //! `SecP384r1MLKEM1024` there is to exchange with: no Rust provider has
-//! one, so `macula-pq-kx`'s own tests can only exchange that group with
+//! one, so `macula-pqc-kx`'s own tests can only exchange that group with
 //! itself. OTP composes the hybrid in its own Erlang code and takes ML-KEM
 //! and ECDH from its `crypto` library, so a completed handshake means two
 //! independently written implementations agreed on share order, lengths,
@@ -22,7 +22,7 @@
 //! both roles, so the agreed keys also work for traffic.
 //!
 //! The negative control: OTP offering only classical groups must fail to
-//! agree with `macula-pq` in both roles. The passing cases are its
+//! agree with `macula-pqc` in both roles. The passing cases are its
 //! positive twin: the same harness, a group in common, a handshake that
 //! completes.
 //!
@@ -58,9 +58,9 @@ const CLASSICAL_ONLY: &str = "x25519,secp256r1,secp384r1";
 fn main() {
     let otp_bin = PathBuf::from(std::env::var("OTP_BIN").expect("OTP_BIN: OTP's bin directory"));
     let (release, crypto_lib) = otp_facts(&otp_bin);
-    println!("OTP {release}, crypto library {crypto_lib}, against macula-pq\n");
+    println!("OTP {release}, crypto library {crypto_lib}, against macula-pqc\n");
 
-    let dir = std::env::temp_dir().join(format!("macula-pq-otp-interop-{}", std::process::id()));
+    let dir = std::env::temp_dir().join(format!("macula-pqc-otp-interop-{}", std::process::id()));
     std::fs::create_dir_all(&dir).unwrap();
     let identity = Identity::write(&dir);
     let peer = Peer {
@@ -121,7 +121,7 @@ fn main() {
     std::fs::remove_dir_all(&dir).unwrap();
     println!();
     if control_failed {
-        println!("NEGATIVE CONTROL FAILED: a classical-only OTP peer agreed with macula-pq.");
+        println!("NEGATIVE CONTROL FAILED: a classical-only OTP peer agreed with macula-pqc.");
         std::process::exit(2);
     }
     if interop_failed {
@@ -129,7 +129,7 @@ fn main() {
         std::process::exit(1);
     }
     println!(
-        "macula-pq and OTP's ssl agree on both hybrids in both roles; classical-only refused."
+        "macula-pqc and OTP's ssl agree on both hybrids in both roles; classical-only refused."
     );
 }
 
@@ -203,7 +203,7 @@ impl Peer {
     }
 }
 
-/// OTP dials, `macula-pq` serves. The group is what rustls reports; the
+/// OTP dials, `macula-pqc` serves. The group is what rustls reports; the
 /// result is `Ok` only if OTP also completed the ping/pong.
 fn we_serve(peer: &Peer, id: &Identity, otp_groups: &str) -> Result<NamedGroup, String> {
     let listener = TcpListener::bind("127.0.0.1:0").map_err(|e| e.to_string())?;
@@ -226,7 +226,7 @@ fn we_serve(peer: &Peer, id: &Identity, otp_groups: &str) -> Result<NamedGroup, 
     both(ours, finish(&mut otp))
 }
 
-/// `macula-pq` dials, OTP serves.
+/// `macula-pqc` dials, OTP serves.
 fn we_dial(peer: &Peer, id: &Identity, otp_groups: &str) -> Result<NamedGroup, String> {
     let mut otp = peer.spawn(&["serve", otp_groups]);
     let ours = (|| {
@@ -355,7 +355,7 @@ impl Identity {
         let ca_key = KeyPair::generate_for(&PKCS_ED25519).unwrap();
         let mut ca_params = CertificateParams::new(Vec::<String>::new()).unwrap();
         ca_params.is_ca = IsCa::Ca(BasicConstraints::Unconstrained);
-        ca_params.distinguished_name = common_name("macula-pq interop CA");
+        ca_params.distinguished_name = common_name("macula-pqc interop CA");
         let ca = ca_params.self_signed(&ca_key).unwrap();
         let issuer = Issuer::new(ca_params, ca_key);
         let server_key = KeyPair::generate_for(&PKCS_ED25519).unwrap();
@@ -374,7 +374,7 @@ impl Identity {
     }
 
     fn server(&self) -> ServerConfig {
-        macula_pq::server_builder()
+        macula_pqc::server_builder()
             .with_no_client_auth()
             .with_single_cert(
                 vec![self.server_cert.clone()],
@@ -386,7 +386,7 @@ impl Identity {
     fn client(&self) -> ClientConfig {
         let mut roots = RootCertStore::empty();
         roots.add(self.ca.clone()).unwrap();
-        macula_pq::client_builder()
+        macula_pqc::client_builder()
             .with_root_certificates(roots)
             .with_no_client_auth()
     }

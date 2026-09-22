@@ -16,7 +16,7 @@
 //! tests. Its composition is checked against OTP's `ssl` by
 //! `scripts/otp-interop.sh`, outside the gate, since CI has no OTP.
 
-use macula_pq_kx::{SECP256R1MLKEM768 as MINE, SECP384R1MLKEM1024};
+use macula_pqc_kx::{SECP256R1MLKEM768 as MINE, SECP384R1MLKEM1024};
 use rustls::crypto::aws_lc_rs::kx_group::SECP256R1MLKEM768 as THEIRS;
 use rustls::NamedGroup;
 

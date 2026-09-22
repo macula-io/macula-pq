@@ -23,7 +23,7 @@ need() { if ! grep -qF -- "$2" README.md; then echo "README: missing $1"; fail=1
 needre() { if ! grep -qE -- "$2" README.md; then echo "README: missing $1"; fail=1; fi; }
 
 # --- shape, in template order ---
-needre "H1"                    '^# macula-pq$'
+needre "H1"                    '^# macula-pqc$'
 needre "CI badge on main"      '^\[!\[CI\].*branch=main'
 needre "License badge"         '^\[!\[License\]'
 needre "Rust badge"            '^\[!\[Rust\]'
@@ -34,8 +34,8 @@ needre "Rust badge"            '^\[!\[Rust\]'
 needre "memory-safety badge" 'rust-secure-code/safety-dance'
 needre "GitHub Sponsors badge" '^\[!\[GitHub Sponsors\].*sponsors/rgfaber'
 need    "logo <picture> block" '<picture>'
-need    "dark logo source"     'assets/macula-pq-full-dark.svg'
-need    "light logo img"       'assets/macula-pq-full-light.svg'
+need    "dark logo source"     'assets/macula-pqc-full-dark.svg'
+need    "light logo img"       'assets/macula-pqc-full-light.svg'
 needre  "centred tagline"      '<strong>.*</strong>'
 needre  "horizontal rule"      '^---$'
 needre  "dated status blockquote" '^> \*\*Status, [0-9]{4}-[0-9]{2}-[0-9]{2}:'
@@ -66,19 +66,19 @@ PYEOF
 
 # --- content: the README's Rust code is code that compiles ---
 #
-# Every ```rust block here must appear verbatim in macula-pq/README.md,
-# which macula-pq's tests compile as a doctest. A snippet edited here and
+# Every ```rust block here must appear verbatim in macula-pqc/README.md,
+# which macula-pqc's tests compile as a doctest. A snippet edited here and
 # not there fails this check rather than drifting from the API.
 python3 - <<'PYEOF' || fail=1
 import re, sys
 blocks = re.findall(r"```rust\n(.*?)```", open("README.md").read(), re.S)
-tested = open("macula-pq/README.md").read()
+tested = open("macula-pqc/README.md").read()
 if not blocks:
     print("README: no ```rust block found; the getting-started code is missing")
     sys.exit(1)
 stray = [b for b in blocks if b not in tested]
 for b in stray:
-    print("README: a rust block is not in macula-pq/README.md, so nothing compiles it:")
+    print("README: a rust block is not in macula-pqc/README.md, so nothing compiles it:")
     print("  " + b.splitlines()[0])
 sys.exit(1 if stray else 0)
 PYEOF

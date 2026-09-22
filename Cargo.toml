@@ -1,28 +1,27 @@
-# The `macula-pq` workspace.
+# The `macula-pqc` workspace, `macula-io/macula-pqc`.
 #
-# ⚠ THIS DIRECTORY IS DESTINED FOR ITS OWN REPOSITORY, `macula-io/macula-pq`.
-# It is laid out here so the move is a `git mv` and nothing is rewritten.
-# It is pure mathematics and protocol-independent policy: no Erlang, no
-# QUIC, no mesh. It does not belong under an Erlang application's
-# `native/`, and we have seen what a library-inside-an-application costs:
-# macula-station needs eight `git_subdir` dependencies to consume one.
+# It is its own repository because it is pure mathematics and
+# protocol-independent policy: no Erlang, no QUIC, no mesh. It does not
+# belong under an Erlang application's `native/`, and we have seen what a
+# library-inside-an-application costs: macula-station needs eight
+# `git_subdir` dependencies to consume one.
 [workspace]
 resolver = "2"
 members = [
     "macula-keccak",  # Keccak-f[1600]: SHA3 and SHAKE, what ML-KEM is built on
     "macula-mlkem",   # the maths
     "macula-mldsa",   # ML-DSA (FIPS 204): signatures, on the same Keccak
-    "macula-pq-kx",   # the hybrid key exchange groups, including ours
-    "macula-pq",      # the facade: the one place the PQ posture is decided
+    "macula-pqc-kx",  # the hybrid key exchange groups, including ours
+    "macula-pqc",     # the facade: the one place the PQ posture is decided
 ]
 
-# One version for all four crates: they are released together, from one
+# One version for every crate: they are released together, from one
 # `v*` tag, and the release workflow refuses a tag that disagrees.
 [workspace.package]
 version = "0.1.0"
 edition = "2021"
 license = "Apache-2.0"
-repository = "https://github.com/macula-io/macula-pq"
+repository = "https://github.com/macula-io/macula-pqc"
 categories = ["cryptography"]
 
 [workspace.dependencies]
@@ -31,7 +30,7 @@ categories = ["cryptography"]
 # with [workspace.package] version above.
 macula-keccak = { path = "macula-keccak", version = "0.1.0" }
 macula-mlkem = { path = "macula-mlkem", version = "0.1.0" }
-macula-pq-kx = { path = "macula-pq-kx", version = "0.1.0" }
+macula-pqc-kx = { path = "macula-pqc-kx", version = "0.1.0" }
 
 # rustls: any 0.23 from .43 up, NOT pinned exactly. These crates are
 # published, and an exact pin would hold every consumer on 0.23.43, so a
@@ -41,6 +40,6 @@ macula-pq-kx = { path = "macula-pq-kx", version = "0.1.0" }
 # so a rustls that changed them fails the gate here. Cargo.lock holds the
 # version this workspace builds and tests against.
 rustls = { version = "0.23.43", default-features = false, features = ["aws-lc-rs", "std"] }
-# Test-only (macula-pq-kx's dev-dependencies), so the exact pin reaches no
+# Test-only (macula-pqc-kx's dev-dependencies), so the exact pin reaches no
 # consumer.
 aws-lc-rs = "=1.18.1"

@@ -243,16 +243,16 @@ dependencies = [
 ]
 
 [[package]]
-name = "macula-pq"
+name = "macula-pqc"
 version = "0.1.0"
 dependencies = [
- "macula-pq-kx",
+ "macula-pqc-kx",
  "rcgen",
  "rustls",
 ]
 
 [[package]]
-name = "macula-pq-kx"
+name = "macula-pqc-kx"
 version = "0.1.0"
 dependencies = [
  "aws-lc-rs",

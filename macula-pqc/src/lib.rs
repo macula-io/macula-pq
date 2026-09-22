@@ -9,7 +9,7 @@
 //!
 //! # Getting started
 //!
-//! Depend on `macula-pq` and nothing else for key exchange. Build each
+//! Depend on `macula-pqc` and nothing else for key exchange. Build each
 //! rustls configuration from one of the two builders, then carry on as
 //! with any rustls builder: the key exchange groups are the only thing
 //! already decided.
@@ -24,13 +24,13 @@
 //! // A client: you choose how the server is verified.
 //! let mut roots = rustls::RootCertStore::empty();
 //! roots.add(trusted_root)?;
-//! let mut client = macula_pq::client_builder()
+//! let mut client = macula_pqc::client_builder()
 //!     .with_root_certificates(roots)
 //!     .with_no_client_auth();
 //! client.alpn_protocols = vec![b"macula".to_vec()];
 //!
 //! // A server: you choose client authentication and the certificate.
-//! let server = macula_pq::server_builder()
+//! let server = macula_pqc::server_builder()
 //!     .with_no_client_auth()
 //!     .with_single_cert(vec![certificate], private_key)?;
 //!
@@ -52,11 +52,11 @@
 //! That is policy, not QUIC plumbing, so it does not belong in a QUIC
 //! transport crate.
 //!
-//! `macula_quic` and `macula-rust` each select a crypto provider
-//! themselves today. Two copies of one posture is a contract in two places:
-//! one of them eventually gains a classical fallback and nothing notices.
-//! Both are to build their TLS configurations from here instead; neither
-//! does yet.
+//! `macula_quic` and `macula-rust` each used to select a crypto provider
+//! themselves. Two copies of one posture is a contract in two places: one
+//! of them eventually gains a classical fallback and nothing notices. Both
+//! now build their TLS configurations from here, on their default
+//! branches.
 //!
 //! # ⚠ How far "locked" goes, stated precisely
 //!
@@ -111,7 +111,7 @@ pub fn server_builder() -> ConfigBuilder<ServerConfig, WantsVerifier> {
 }
 
 /// TLS 1.3 only. QUIC requires it, and both hybrids refuse TLS 1.2 on
-/// their own (`macula-pq-kx`'s `usable_for_tls13_only`), which is what
+/// their own (`macula-pqc-kx`'s `usable_for_tls13_only`), which is what
 /// actually enforces it and is tested there. Stated here as well so that a
 /// consumer building rustls with its `tls12` feature, as `macula_quic`
 /// does, does not put TLS 1.2 in our ClientHello.
@@ -126,14 +126,15 @@ const PROVIDER_SPEAKS_TLS_1_3: &str = "aws-lc-rs's default provider has TLS 1.3 
 /// # The key exchange groups
 ///
 /// `[SecP384r1MLKEM1024, SecP256r1MLKEM768]`, in preference order, both
-/// from `macula-pq-kx`: ML-KEM from `macula-mlkem`, ECDH from `aws-lc-rs`.
+/// from `macula-pqc-kx`: ML-KEM from `macula-mlkem`, ECDH from `aws-lc-rs`.
 ///
 /// - **`SecP384r1MLKEM1024` leads** because it is the group macula's
 ///   `pq_hybrid` profile declares, so two macula peers on this provider
 ///   negotiate it.
 /// - **`SecP256r1MLKEM768` follows**: it is the hybrid on BSI TR-02102-2's
-///   list, and the one `macula_quic` leads with today. A peer still on that
-///   list has no `SecP384r1MLKEM1024`, so it and this provider agree on
+///   list, and the one `macula_quic` led with before it moved to this
+///   crate (macula `c91e0214`). A peer still on that list has no
+///   `SecP384r1MLKEM1024`, so it and this provider agree on
 ///   `SecP256r1MLKEM768`, after one HelloRetryRequest when we dial it.
 ///
 /// Everything else comes from `aws-lc-rs`'s default provider: cipher
@@ -167,8 +168,8 @@ const PROVIDER_SPEAKS_TLS_1_3: &str = "aws-lc-rs's default provider has TLS 1.3 
 fn provider() -> rustls::crypto::CryptoProvider {
     rustls::crypto::CryptoProvider {
         kx_groups: vec![
-            macula_pq_kx::SECP384R1MLKEM1024,
-            macula_pq_kx::SECP256R1MLKEM768,
+            macula_pqc_kx::SECP384R1MLKEM1024,
+            macula_pqc_kx::SECP256R1MLKEM768,
         ],
         ..rustls::crypto::aws_lc_rs::default_provider()
     }
@@ -237,12 +238,12 @@ mod tests {
             let names: Vec<NamedGroup> = groups.iter().map(|g| g.name()).collect();
             assert_eq!(groups.len(), 2, "{builder}: {names:?}");
             assert!(
-                std::ptr::addr_eq(groups[0], macula_pq_kx::SECP384R1MLKEM1024),
-                "{builder}: first group is not macula-pq-kx's SecP384r1MLKEM1024"
+                std::ptr::addr_eq(groups[0], macula_pqc_kx::SECP384R1MLKEM1024),
+                "{builder}: first group is not macula-pqc-kx's SecP384r1MLKEM1024"
             );
             assert!(
-                std::ptr::addr_eq(groups[1], macula_pq_kx::SECP256R1MLKEM768),
-                "{builder}: second group is not macula-pq-kx's SecP256r1MLKEM768"
+                std::ptr::addr_eq(groups[1], macula_pqc_kx::SECP256R1MLKEM768),
+                "{builder}: second group is not macula-pqc-kx's SecP256r1MLKEM768"
             );
             assert!(
                 !std::ptr::addr_eq(groups[1], aws::SECP256R1MLKEM768),

@@ -1,4 +1,4 @@
-# Contributing to macula-pq
+# Contributing to macula-pqc
 
 Thank you for considering a contribution. This is cryptography, so the bar
 is evidence: every claim here is backed by a test that has been seen to
@@ -11,14 +11,14 @@ Please read and follow our [Code of Conduct](CODE_OF_CONDUCT.md).
 ## Reporting a vulnerability
 
 **Do not open a public issue.** Report it privately through GitHub's
-[private vulnerability reporting](https://github.com/macula-io/macula-pq/security/advisories/new)
+[private vulnerability reporting](https://github.com/macula-io/macula-pqc/security/advisories/new)
 on the Security tab.
 
 ## Getting started
 
 ```sh
-git clone https://github.com/macula-io/macula-pq.git
-cd macula-pq
+git clone https://github.com/macula-io/macula-pqc.git
+cd macula-pqc
 git config core.hooksPath .githooks
 ./scripts/test.sh
 ```

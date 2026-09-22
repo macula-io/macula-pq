@@ -16,18 +16,18 @@ name: Release to crates.io
 #   never publishes. GitHub only dispatches a workflow that is on the
 #   default branch.
 #
-# ⛔ EVERY CRATE IS PUBLISHED. ONLY `macula-pq` IS A SUPPORTED ENTRY
+# ⛔ EVERY CRATE IS PUBLISHED. ONLY `macula-pqc` IS A SUPPORTED ENTRY
 # POINT. Both halves matter and a later reader will otherwise "simplify"
 # one of them away.
 #
 # WHY ALL ARE PUBLISHED: a mechanical constraint, not a product
 # decision. Cargo refuses to publish a crate whose dependencies are not
-# themselves on crates.io. `macula-pq` depends on `macula-pq-kx`, and so
+# themselves on crates.io. `macula-pqc` depends on `macula-pqc-kx`, and so
 # on down, so publishing the facade requires publishing everything it
 # stands on. The inner crates exist on the registry without being
 # advertised.
 #
-# WHAT TO DEPEND ON IS `macula-pq`. There is no use case for consuming
+# WHAT TO DEPEND ON IS `macula-pqc`. There is no use case for consuming
 # `macula-keccak` alone: nothing in this stack needs SHA-3 outside ML-KEM
 # and ML-DSA, because TLS uses SHA-2, and this is not a general-purpose
 # Keccak maintained for strangers.
@@ -38,8 +38,8 @@ name: Release to crates.io
 #   macula-keccak   zeroize only
 #   macula-mlkem    keccak + OS randomness + zeroize    NO rustls
 #   macula-mldsa    keccak + OS randomness + zeroize    NO rustls
-#   macula-pq-kx    mlkem + rustls + aws-lc-rs
-#   macula-pq       facade
+#   macula-pqc-kx    mlkem + rustls + aws-lc-rs
+#   macula-pqc       facade
 #
 # Collapse that and anyone wanting ML-KEM or ML-DSA is forced to take
 # rustls and aws-lc-rs with it. Keeping the maths free of the TLS

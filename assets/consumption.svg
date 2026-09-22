@@ -1,6 +1,6 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="680" height="300" viewBox="0 0 680 300" role="img" aria-labelledby="title desc">
-  <title id="title">How macula-pq is consumed</title>
-  <desc id="desc">The consumers, macula's QUIC NIF and the macula-rust SDK, depend on macula-pq alone for key exchange; rustls and quinn remain their envelope. Behind macula-pq sit its internal crates, macula-pq-kx, macula-mlkem and macula-keccak, and aws-lc-rs, which consumers never see.</desc>
+  <title id="title">How macula-pqc is consumed</title>
+  <desc id="desc">The consumers, macula's QUIC NIF and the macula-rust SDK, depend on macula-pqc alone for key exchange; rustls and quinn remain their envelope. Behind macula-pqc sit its internal crates, macula-pqc-kx, macula-mlkem and macula-keccak, and aws-lc-rs, which consumers never see.</desc>
   <defs>
     <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto">
       <path d="M0,0 L10,5 L0,10 z" fill="#1E3A5F"/>
@@ -17,12 +17,12 @@
     <text x="40" y="211" font-size="11" fill="#1E3A5F">the Rust SDK</text>
 
     <rect x="258" y="104" width="160" height="60" rx="8" fill="#FFF7ED" stroke="#F97316" stroke-width="2"/>
-    <text x="274" y="130" font-size="15" font-weight="700" fill="#0C1929">macula-pq</text>
+    <text x="274" y="130" font-size="15" font-weight="700" fill="#0C1929">macula-pqc</text>
     <text x="274" y="151" font-size="11" fill="#1E3A5F">the facade</text>
 
-    <text x="470" y="34" font-size="11" fill="#1E3A5F">internal to macula-pq</text>
+    <text x="470" y="34" font-size="11" fill="#1E3A5F">internal to macula-pqc</text>
     <rect x="470" y="44" width="186" height="100" rx="8" fill="#F0F9FF" stroke="#0EA5E9" stroke-width="1.5"/>
-    <text x="486" y="70" font-size="13" font-weight="700" fill="#0C1929">macula-pq-kx</text>
+    <text x="486" y="70" font-size="13" font-weight="700" fill="#0C1929">macula-pqc-kx</text>
     <text x="486" y="94" font-size="13" font-weight="700" fill="#0C1929">macula-mlkem</text>
     <text x="486" y="118" font-size="13" font-weight="700" fill="#0C1929">macula-keccak</text>
     <rect x="470" y="164" width="186" height="60" rx="8" fill="#F8FAFC" stroke="#94A3B8" stroke-width="1.5"/>
@@ -35,6 +35,6 @@
     <line x1="418" y1="146" x2="468" y2="192" stroke="#1E3A5F" stroke-width="1.5" marker-end="url(#arrow)"/>
 
     <text x="24" y="266" font-size="11" fill="#1E3A5F">rustls and quinn stay the consumers' envelope: TLS and QUIC protocol.</text>
-    <text x="24" y="284" font-size="11" fill="#1E3A5F">macula-pq decides the key exchange, and nothing about it is left to them.</text>
+    <text x="24" y="284" font-size="11" fill="#1E3A5F">macula-pqc decides the key exchange, and nothing about it is left to them.</text>
   </g>
 </svg>
