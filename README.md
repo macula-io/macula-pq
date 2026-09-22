@@ -326,6 +326,18 @@ in both roles, and the classical-only peer is refused in both. With
 `SecP384r1MLKEM1024`'s share order reversed in `macula-pqc-kx`, both of
 its cases fail and the 768 cases still pass.
 
+**`macula-mldsa` is checked against OTP's `crypto` in the same run**, the
+ML-DSA the fleet's existing node keys were made with. Signing is hedged on
+both sides, so no signatures are compared. What must agree: the public key
+each side derives from the other's private key, byte for byte, and each
+side's signatures verifying on the other, with the key expanded and as its
+seed. A signature on another message, and one made under a context OTP
+cannot see, must be refused. On OTP 28.4.2 all 30 cases pass at ML-DSA-44,
+-65 and -87; with the public signing path's domain byte planted as 1, every
+case where OTP verifies ours fails.
+[`examples/otp_signature_interop.rs`](macula-mldsa/examples/otp_signature_interop.rs)
+documents it.
+
 ### How these crates are verified
 
 **Against the standards bodies' own vectors, byte-exact, vendored with

@@ -68,6 +68,24 @@ pub enum Error {
     /// An expanded private key was not the length its parameter set
     /// requires.
     WrongLength,
+    /// An expanded private key's parts disagree: its `t0` or its hash of
+    /// the public key `tr` is not what its `rho`, `s1` and `s2` determine.
+    InconsistentPrivateKey,
+}
+
+/// The public key of a private key, in either form: from a seed by FIPS
+/// 204 key generation, from an expanded key by recomputing `t` from its
+/// `rho`, `s1` and `s2`.
+///
+/// An expanded key is checked against itself on the way: its stored `t0`
+/// and `tr = H(pk)` must be what its other parts determine, or it is
+/// refused with [`Error::InconsistentPrivateKey`]. Comparing the result
+/// with a stored public key is then the caller's load check.
+pub fn public_key(p: ParameterSet, sk: PrivateKey) -> Result<Vec<u8>, Error> {
+    match sk {
+        PrivateKey::Seed(seed) => Ok(internal::key_gen(p, seed).0),
+        PrivateKey::Expanded(bytes) => internal::public_key_of_expanded(p, bytes),
+    }
 }
 
 /// A private key in either of the forms FIPS 204 allows.

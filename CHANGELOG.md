@@ -19,6 +19,16 @@ version may include a breaking change where that was the right call.
 
 ### `macula-mldsa` (still withheld)
 
+- `public_key` derives a private key's public key from either form. An
+  expanded key is checked against itself on the way, and refused with
+  `InconsistentPrivateKey` when its stored `t0` or `tr` disagree with
+  what its `rho`, `s1` and `s2` determine: the load check macula's D6
+  asks for.
+- `scripts/otp-interop.sh` now also checks macula-mldsa against OTP's
+  `crypto` at all three sets: public keys derived from one private key
+  match, and each side's signatures verify on the other, with keys
+  expanded and as seeds.
+
 - Key generation: `key_gen` draws its seed from the OS, and FIPS 204
   Algorithm 6 (`internal::key_gen`, testing only) passes all 75 of NIST's
   keyGen vectors, byte-exact, at ML-DSA-44, -65 and -87. Every secret

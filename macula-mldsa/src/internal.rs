@@ -48,18 +48,35 @@ pub fn key_gen(p: ParameterSet, xi: &[u8; 32]) -> (Vec<u8>, Zeroizing<Vec<u8>>) 
     let mut key = Zeroizing::new([0u8; 32]);
     key.copy_from_slice(&seeds[96..]);
 
-    let a_hat = expand_a(&rho, p);
     let mut s1 = Zeroizing::new([[0i32; N]; L_MAX]);
     let mut s2 = Zeroizing::new([[0i32; N]; K_MAX]);
     expand_s(&mut s1, &mut s2, &rho_prime, p);
+    let mut t0 = Zeroizing::new([[0i32; N]; K_MAX]);
+    let pk = public_key_of(p, &rho, &s1, &s2, &mut t0);
+    let tr = hash_of_public_key(&pk);
 
-    // t = NTT^-1(A_hat o NTT(s1)) + s2, then (t1, t0) = Power2Round(t).
+    let mut sk = Zeroizing::new(vec![0u8; p.private_key_len()]);
+    sk_encode(&mut sk, &rho, &key, &tr, &s1, &s2, &t0, p);
+    (pk, sk)
+}
+
+/// Algorithm 6, lines 3 and 5 to 8: `t = NTT^-1(A_hat o NTT(s1)) + s2`,
+/// `(t1, t0) = Power2Round(t)`, and `pk = pkEncode(rho, t1)`, with `t0`
+/// written into the caller's wiped array. Shared by key generation and by
+/// [`public_key_of_expanded`], so the two cannot compute `t` differently.
+fn public_key_of(
+    p: ParameterSet,
+    rho: &[u8; 32],
+    s1: &[Poly; L_MAX],
+    s2: &[Poly; K_MAX],
+    t0: &mut [Poly; K_MAX],
+) -> Vec<u8> {
+    let a_hat = expand_a(rho, p);
     let mut s1_hat = Zeroizing::new(*s1);
     for poly in s1_hat.iter_mut().take(p.l) {
         ntt(poly);
     }
     let mut t1 = [[0i32; N]; K_MAX];
-    let mut t0 = Zeroizing::new([[0i32; N]; K_MAX]);
     let mut t: Zeroizing<Poly> = Zeroizing::new([0i32; N]);
     for r in 0..p.k {
         t.fill(0);
@@ -73,18 +90,37 @@ pub fn key_gen(p: ParameterSet, xi: &[u8; 32]) -> (Vec<u8>, Zeroizing<Vec<u8>>) 
             t0[r][i] = from_signed(low);
         }
     }
-
     let mut pk = vec![0u8; p.public_key_len()];
-    pk_encode(&mut pk, &rho, &t1, p);
-    // tr = H(pk, 64)
+    pk_encode(&mut pk, rho, &t1, p);
+    pk
+}
+
+/// `tr = H(pk, 64)`.
+fn hash_of_public_key(pk: &[u8]) -> [u8; 64] {
     let mut tr = [0u8; 64];
     let mut h = Shake256::new();
-    h.update(&pk);
+    h.update(pk);
     h.finalize_xof().read(&mut tr);
+    tr
+}
 
-    let mut sk = Zeroizing::new(vec![0u8; p.private_key_len()]);
-    sk_encode(&mut sk, &rho, &key, &tr, &s1, &s2, &t0, p);
-    (pk, sk)
+/// The public key of an expanded private key, recomputed from its `rho`,
+/// `s1` and `s2`. The key's own `t0` and `tr = H(pk)` must match what they
+/// determine, or the key is refused: its parts disagree.
+pub(crate) fn public_key_of_expanded(p: ParameterSet, sk: &[u8]) -> Result<Vec<u8>, Error> {
+    if sk.len() != p.private_key_len() {
+        return Err(Error::WrongLength);
+    }
+    let mut s1 = Zeroizing::new([[0i32; N]; L_MAX]);
+    let mut s2 = Zeroizing::new([[0i32; N]; K_MAX]);
+    let mut stored_t0 = Zeroizing::new([[0i32; N]; K_MAX]);
+    let (rho, _key, tr) = sk_decode(sk, p, &mut s1, &mut s2, &mut stored_t0);
+    let mut t0 = Zeroizing::new([[0i32; N]; K_MAX]);
+    let pk = public_key_of(p, &rho, &s1, &s2, &mut t0);
+    if t0[..p.k] != stored_t0[..p.k] || hash_of_public_key(&pk) != tr {
+        return Err(Error::InconsistentPrivateKey);
+    }
+    Ok(pk)
 }
 
 /// FIPS 204 Algorithm 8, `ML-DSA.Verify_internal`, on the formatted
