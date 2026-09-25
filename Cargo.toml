@@ -18,7 +18,7 @@ members = [
 # One version for every crate: they are released together, from one
 # `v*` tag, and the release workflow refuses a tag that disagrees.
 [workspace.package]
-version = "0.2.0"
+version = "0.3.0"
 edition = "2021"
 license = "Apache-2.0"
 repository = "https://github.com/macula-io/macula-pqc"
@@ -28,10 +28,10 @@ categories = ["cryptography"]
 # This workspace's own crates: by path to build here, and by version
 # because crates.io refuses a dependency that has only a path. Bump these
 # with [workspace.package] version above.
-macula-keccak = { path = "macula-keccak", version = "0.2.0" }
-macula-mlkem = { path = "macula-mlkem", version = "0.2.0" }
-macula-mldsa = { path = "macula-mldsa", version = "0.2.0" }
-macula-pqc-kx = { path = "macula-pqc-kx", version = "0.2.0" }
+macula-keccak = { path = "macula-keccak", version = "0.3.0" }
+macula-mlkem = { path = "macula-mlkem", version = "0.3.0" }
+macula-mldsa = { path = "macula-mldsa", version = "0.3.0" }
+macula-pqc-kx = { path = "macula-pqc-kx", version = "0.3.0" }
 
 # rustls: any 0.23 from .43 up, NOT pinned exactly. These crates are
 # published, and an exact pin would hold every consumer on 0.23.43, so a

@@ -136,6 +136,21 @@ pub fn server_builder() -> ConfigBuilder<ServerConfig, WantsVerifier> {
 /// actually enforces it and is tested there. Stated here as well so that a
 /// consumer building rustls with its `tls12` feature, as `macula_quic`
 /// does, does not put TLS 1.2 in our ClientHello.
+/// The QUIC Initial packet suite, AES-128-GCM with SHA-256, for a QUIC stack built on these builders.
+///
+/// RFC 9001 protects every QUIC version-1 Initial packet with AES-128-GCM, whatever suite the TLS handshake
+/// negotiates. quinn looks for that suite in the provider's own `cipher_suites` by default, and the provider here
+/// offers AES-256-GCM alone (macula issue #39), so a quinn consumer passes this suite explicitly:
+/// `QuicClientConfig::with_initial(Arc::new(config), macula_pqc::quic_initial_suite())`, and the same for
+/// `QuicServerConfig`. `try_from` on a config from these builders fails with `NoInitialCipherSuite`.
+pub fn quic_initial_suite() -> rustls::quic::Suite {
+    rustls::crypto::aws_lc_rs::cipher_suite::TLS13_AES_128_GCM_SHA256
+        .tls13()
+        .expect("TLS13_AES_128_GCM_SHA256 is a TLS 1.3 suite")
+        .quic_suite()
+        .expect("TLS13_AES_128_GCM_SHA256 carries QUIC header protection, as RFC 9001 requires")
+}
+
 const TLS_1_3_ONLY: &[&rustls::SupportedProtocolVersion] = &[&rustls::version::TLS13];
 
 /// The only way this can fail is a provider with no TLS 1.3 cipher suite,
@@ -199,6 +214,10 @@ fn provider() -> rustls::crypto::CryptoProvider {
             macula_pqc_kx::SECP384R1MLKEM1024,
             macula_pqc_kx::SECP256R1MLKEM768,
         ],
+        // AES-256-GCM with SHA-384 only: the one TLS 1.3 suite on CNSA 2.0's list. Left to the default, the
+        // provider also offered AES-128-GCM and ChaCha20 (macula issue #39). QUIC Initial packets stay
+        // AES-128-GCM, as RFC 9001 fixes for every QUIC version-1 connection.
+        cipher_suites: vec![rustls::crypto::aws_lc_rs::cipher_suite::TLS13_AES_256_GCM_SHA384],
         signature_verification_algorithms: signatures::SIGNATURE_VERIFICATION_ALGORITHMS,
         key_provider: &signatures::KeyLoader,
         ..rustls::crypto::aws_lc_rs::default_provider()
@@ -215,13 +234,14 @@ mod tests {
     use std::sync::Arc;
 
     use rcgen::{CertificateParams, KeyPair};
+    use rustls::crypto::aws_lc_rs::cipher_suite as aws_suite;
     use rustls::crypto::aws_lc_rs::kx_group as aws;
     use rustls::crypto::{CryptoProvider, SupportedKxGroup};
     use rustls::pki_types::{CertificateDer, PrivateKeyDer, PrivatePkcs8KeyDer, ServerName};
     use rustls::sign::{CertifiedKey, SingleCertAndKey};
     use rustls::{
-        ClientConfig, ClientConnection, Connection, NamedGroup, RootCertStore, ServerConfig,
-        ServerConnection,
+        CipherSuite, ClientConfig, ClientConnection, Connection, NamedGroup, RootCertStore,
+        ServerConfig, ServerConnection,
     };
 
     use super::{
@@ -375,6 +395,56 @@ mod tests {
         assert!(
             as_server.is_err(),
             "a classical-only client agreed with us: {as_server:?}"
+        );
+    }
+
+    /// The one TLS 1.3 cipher suite both builders offer: AES-256-GCM with SHA-384, the only one on CNSA 2.0's
+    /// list. The provider used to take `cipher_suites` from `aws-lc-rs`'s default, which adds AES-128-GCM and
+    /// ChaCha20 (macula issue #39). QUIC still protects its Initial packets with AES-128-GCM, as RFC 9001 fixes;
+    /// that is the transport's rule, not this list.
+    #[test]
+    fn both_builders_offer_only_tls13_aes_256_gcm_sha384() {
+        for (builder, suites) in [
+            (
+                "client_builder",
+                client_builder().crypto_provider().cipher_suites.clone(),
+            ),
+            (
+                "server_builder",
+                server_builder().crypto_provider().cipher_suites.clone(),
+            ),
+        ] {
+            let names: Vec<CipherSuite> = suites.iter().map(|s| s.suite()).collect();
+            assert_eq!(
+                names,
+                vec![CipherSuite::TLS13_AES_256_GCM_SHA384],
+                "{builder}"
+            );
+        }
+    }
+
+    /// ⛔ THE CIPHER SUITE NEGATIVE CONTROL, both roles. A peer with our groups and our signatures that offers
+    /// only AES-128-GCM and ChaCha20 must fail to agree with us. It can only fail if our one-suite list is in
+    /// force: with the default list it would agree on AES-128-GCM.
+    #[test]
+    fn a_peer_without_aes_256_gcm_cannot_agree_with_us() {
+        let narrower = || CryptoProvider {
+            cipher_suites: vec![
+                aws_suite::TLS13_AES_128_GCM_SHA256,
+                aws_suite::TLS13_CHACHA20_POLY1305_SHA256,
+            ],
+            ..provider()
+        };
+        let id = Identity::new();
+        let as_client = handshake(our_client(&id), peer_server(narrower(), &id));
+        let as_server = handshake(peer_client(narrower(), &id), our_server(&id));
+        assert!(
+            as_client.is_err(),
+            "a server without AES-256-GCM agreed with us: {as_client:?}"
+        );
+        assert!(
+            as_server.is_err(),
+            "a client without AES-256-GCM agreed with us: {as_server:?}"
         );
     }
 

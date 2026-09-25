@@ -9,6 +9,38 @@ withheld from a release, and its section says so. Format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Pre-1.0: a minor
 version may include a breaking change where that was the right call.
 
+## [0.3.0] - unreleased
+
+`macula-pqc` offers and accepts one TLS 1.3 cipher suite, AES-256-GCM with
+SHA-384, and exports the QUIC Initial suite a quinn consumer now has to pass
+explicitly. **Breaking for quinn consumers**, hence 0.3: a config built from
+these builders with `QuicClientConfig::try_from` or `QuicServerConfig::try_from`
+fails with `NoInitialCipherSuite`. The other crates are unchanged and move to
+0.3.0 with it.
+
+### `macula-pqc`: AES-256-GCM only
+
+- The provider inside `client_builder()` and `server_builder()` offers and
+  accepts only `TLS13_AES_256_GCM_SHA384`, the one TLS 1.3 suite on CNSA
+  2.0's list. It used to take `cipher_suites` from `aws-lc-rs`'s default,
+  which adds AES-128-GCM and ChaCha20 (macula issue #39). On the wire,
+  Go-based clients (which list AES-128-GCM first) negotiated
+  TLS_AES_128_GCM_SHA256 with stations on the old list.
+- `quic_initial_suite()`: AES-128-GCM with SHA-256 as a `rustls::quic::Suite`.
+  RFC 9001 protects every QUIC version-1 Initial packet with it, whatever the
+  handshake negotiates, and quinn looks for it in the provider's own suites
+  by default. Build QUIC configs with
+  `QuicClientConfig::with_initial(Arc::new(config), macula_pqc::quic_initial_suite())`
+  and the same for `QuicServerConfig`.
+- Consumers to move with it: `macula` `native/macula_quic/src/config.rs`
+  (server and client), and `macula-rust` `src/transport.rs` and
+  `src/stream.rs` when it moves off 0.1.
+- Tests: both builders offer exactly that one suite; a peer offering only
+  AES-128-GCM and ChaCha20 cannot agree with us in either role; QUIC client
+  and server configs build with `with_initial` and the Initial suite is
+  AES-128-GCM; without it, `try_from` fails. quinn-proto is a
+  dev-dependency for the last two.
+
 ## [0.2.0] - 2026-09-22
 
 `macula-pqc`'s TLS signatures are post-quantum: ML-DSA-87 alone, on

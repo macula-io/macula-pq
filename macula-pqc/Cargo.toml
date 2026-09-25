@@ -21,3 +21,6 @@ rcgen = { version = "0.14", default-features = false, features = ["aws_lc_rs"] }
 [dev-dependencies]
 # FIPS 204's KeyGen_internal, to build one key's seed and expanded forms in a test.
 macula-mldsa = { workspace = true, features = ["internal"] }
+# QUIC config building, as macula_quic does it: quinn takes the QUIC Initial
+# suite from the provider, so a provider change must be proven against it.
+quinn-proto = { version = "0.11.18", default-features = false, features = ["rustls-aws-lc-rs"] }
